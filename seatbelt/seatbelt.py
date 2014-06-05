@@ -1,7 +1,7 @@
 # twisted, portable, incomplete fs-backed couchdb-inspired database
 
 """
-python carousel.py caro-db
+python seatbelt.py /path/to/database_directory
 
 curl http://localhost:6984/_all_dbs
 
@@ -201,32 +201,17 @@ class DbChanges(Resource):
             timeout.cancel()
             del self._change_waiters[req]
 
-# Let me set the scene for you.
-# 
-# You're at the mall. In the food court, by the glass windows in the
-# dining area stands a glistening CAROUSEL. You realize that it
-# comprises a complex system, both technical and social. On the
-# carousel may be any number of mechanical HOBBYHORSEs, upon which
-# SMILINGKIDs, some wearing GOOFYHATs, frolick about.
-# 
-# If it were a CouchDB:
-# 
-# CAROUSEL - CouchDB
-# HOBBYHORSE - Database
-# SMILINGKID - Document
-# GOOFYHAT - Attachment
-
-class GoofyHat(File):
+class Attachment(File):
     def __init__(self, kid, path, **kw):
         self.kid = kid
         File.__init__(self, path, **kw)
     def render_PUT(self, request):
         return self.kid.render_PUT(request)
 
-class SmilingKid(Resource):
-    def __init__(self, horse, docpath):
+class Document(Resource):
+    def __init__(self, db, docpath):
         Resource.__init__(self)
-        self.horse = horse
+        self.db = db
         self.docpath = docpath
         self._docid = os.path.basename(docpath)
         self.attachments = {}    # name -> File
@@ -246,7 +231,7 @@ class SmilingKid(Resource):
                 self._serve_attachment(filename, self._get_mime(filename))
 
     def _serve_attachment(self, filename, mimetype="text/html"):
-        self.attachments[filename] = GoofyHat(self, os.path.join(self.docpath, filename),
+        self.attachments[filename] = Attachment(self, os.path.join(self.docpath, filename),
                                               defaultType=mimetype)
         self.putChild(filename, self.attachments[filename])
 
@@ -330,7 +315,7 @@ class SmilingKid(Resource):
             "length": filesize,
             "content_type": content_type}
         self._serve_attachment(attachname, mimetype=content_type)
-        return self.horse._try_update(self.doc)
+        return self.db._try_update(self.doc)
 
     def render_PUT(self, request):
         #path = request.path.replace("/_design%2F", "/_design/")
@@ -350,7 +335,7 @@ class SmilingKid(Resource):
             return json_dumpsu(res)
         else:
             # trying to update document -- handle in parent
-            return self.horse.render_PUT(request)
+            return self.db.render_PUT(request)
 
     def _get_mime(self, name):
         return mimetypes.guess_type(name)[0]
@@ -358,23 +343,23 @@ class SmilingKid(Resource):
     def _get_attachpath(self, hashstr):
         # Where, based on the hashstr, should the attachment be found?
         return os.path.join(
-            self.horse.carousel.datadir,
+            self.db.seatbelt.datadir,
             "_attachments",
             hashstr[:2],
             hashstr[2:])
 
     def render_DELETE(self, request):
-        doc = self.horse.getdoc(self.docid)
+        doc = self.db.getdoc(self.docid)
         revid = request.args["rev"][0]
 
         request.headers["Content-Type"] = "application/json"
 
         if doc["_rev"] == revid:
             del self.horse._all_docs[self.docid]
-            del self.horse.docs[self.docid]
-            #self.horse._save_to_disk()
-            self.horse._save_db_info()
-            self.horse._change({"_id": self.docid, "_deleted": True})
+            del self.db.docs[self.docid]
+            #self.db._save_to_disk()
+            self.db._save_db_info()
+            self.db._change({"_id": self.docid, "_deleted": True})
 
             # remove attachments
             for attachname in self.attachments:
@@ -393,16 +378,16 @@ class SmilingKid(Resource):
 
 class Designer(Resource):
     def __init__(self, horse):
-        self.horse = horse
+        self.db = horse
         Resource.__init__(self)
     def getChild(self, name, request):
         if request.method == "PUT" and len(name) > 0:
-            return self.horse.getChild(name, request)
+            return self.db.getChild(name, request)
         return Resource.getChild(self, name, request)
 
-class DesignDoc(SmilingKid):
+class DesignDoc(Document):
     def __init__(self, *a, **kw):
-        SmilingKid.__init__(self, *a, **kw)
+        Document.__init__(self, *a, **kw)
 
         # Pretend that we have rewrites set up such that this
         # documents' attachments are visible, along with the parent
@@ -412,8 +397,8 @@ class DesignDoc(SmilingKid):
         # TODO: implement _rewrite/ semantics
         self.rewrite_resource = File(self.docpath)
         self.rewrite_resource.indexNames = ["index.html"]
-        self.rewrite_resource.putChild("db", self.horse)
-        self.rewrite_resource.putChild("root", self.horse.carousel) # insecure!
+        self.rewrite_resource.putChild("db", self.db)
+        self.rewrite_resource.putChild("root", self.db.seatbelt) # insecure!
         self.putChild("_rewrite", self.rewrite_resource)
 
         # Create symlink structure so that static version will work
@@ -427,12 +412,12 @@ class DesignDoc(SmilingKid):
             dpath = os.path.join(self.docpath, "db")
             if not os.path.exists(dpath):
                 os.symlink(
-                    os.path.relpath(self.horse.dbpath, start=self.docpath),
+                    os.path.relpath(self.db.dbpath, start=self.docpath),
                     dpath)
             rpath = os.path.join(self.docpath, "root")
             if not os.path.exists(rpath):
                 os.symlink(
-                    os.path.relpath(self.horse.carousel.datadir, start=self.docpath),
+                    os.path.relpath(self.db.seatbelt.datadir, start=self.docpath),
                     rpath)
 
     @property
@@ -441,12 +426,12 @@ class DesignDoc(SmilingKid):
 
     def render_GET(self, request):
         request.headers["Content-Type"] = "application/json"
-        return json_dumpsu(self.horse.getdoc(self.docid))
+        return json_dumpsu(self.db.getdoc(self.docid))
 
-class HobbyHorse(Resource):
-    def __init__(self, carousel, dbpath):
+class Database(Resource):
+    def __init__(self, seatbelt, dbpath):
         Resource.__init__(self)
-        self.carousel = carousel
+        self.seatbelt = seatbelt
         self._all_docs = {}
         self.dbpath = dbpath
         self.dbname = os.path.basename(dbpath)
@@ -455,7 +440,7 @@ class HobbyHorse(Resource):
         self.putChild("_changes", self.change_resource)
 
         # defaults -- potentially overwritten in `self._load_from_disk()' call
-        self.docs = {}          # docid -> SmilingKid
+        self.docs = {}          # docid -> Document
         self._db_info = {"db_name": self.dbname, "update_seq": 0}
         self._changes = {}      # seqno -> [doc]
 
@@ -541,7 +526,7 @@ class HobbyHorse(Resource):
                 self.putChild(docid, self.docs[docid])
 
             else:
-                self.docs[docid] = SmilingKid(self, os.path.join(self.dbpath, docid))
+                self.docs[docid] = Document(self, os.path.join(self.dbpath, docid))
                 self.putChild(docid, self.docs[docid])
 
     def getdoc(self, docid):
@@ -581,7 +566,7 @@ class HobbyHorse(Resource):
 
     def _change(self, doc):
         # Propagate to carousel
-        self.carousel._change("updated", self.dbname)
+        self.seatbelt._change("updated", self.dbname)
 
         # Serialize update
         self._changes[self._db_info["update_seq"]] = doc
@@ -632,7 +617,7 @@ class HobbyHorse(Resource):
             return self
         return Resource.getChild(self, name, request)
 
-class Carousel(Resource):
+class Seatbelt(Resource):
     def __init__(self, datadir):
         Resource.__init__(self)
         self.datadir = datadir
@@ -644,7 +629,7 @@ class Carousel(Resource):
         self.putChild("_db_updates", self.db_updates_resource)
 
         self._all_dbs = []
-        self.dbs = {}           # dbname -> HobbyHorse
+        self.dbs = {}           # dbname -> Database
         self._load_from_disk()
         self._serve_dbs()
 
@@ -700,7 +685,7 @@ class Carousel(Resource):
             self._serve_db(dbname)
 
     def _serve_db(self, dbname):
-        self.dbs[dbname] = HobbyHorse(self, os.path.join(self.datadir, dbname))
+        self.dbs[dbname] = Database(self, os.path.join(self.datadir, dbname))
         self.putChild(dbname, self.dbs[dbname])
 
     def getChild(self, name, req):
@@ -728,12 +713,12 @@ def linkddocs(db, srcdir, copy=False):
     return ddoc
 
 def serve(dbdir, port=6984, interface='0.0.0.0', queue=None, defaultdb=None, defaultddocs=None):
-    carousel = Carousel(dbdir)
-    site = Site(carousel)
+    seatbelt = Seatbelt(dbdir)
+    site = Site(seatbelt)
 
     local_root_uri = "http://%s:%d" % (interface, port)
     if defaultdb is not None:
-        db = carousel.get_or_create_db(defaultdb)
+        db = seatbelt.get_or_create_db(defaultdb)
         if defaultddocs is not None:
             ddoc = linkddocs(db, defaultddocs)
             site = Site(ddoc.rewrite_resource)
