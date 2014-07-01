@@ -223,7 +223,7 @@ class Document(Resource):
 
     @property
     def doc(self):
-        return self.horse.getdoc(self.docid)
+        return self.db.getdoc(self.docid)
 
     def _load_from_disk(self):
         if os.path.exists(self.docpath):
@@ -237,7 +237,7 @@ class Document(Resource):
 
     def render_GET(self, request):
         request.headers["Content-Type"] = "application/json"
-        return json_dumpsu(self.horse.getdoc(self.docid))
+        return json_dumpsu(self.db.getdoc(self.docid))
 
     def link_attachment(self, path, filename=None):
         # for programmatic use only
@@ -355,7 +355,7 @@ class Document(Resource):
         request.headers["Content-Type"] = "application/json"
 
         if doc["_rev"] == revid:
-            del self.horse._all_docs[self.docid]
+            del self.db._all_docs[self.docid]
             del self.db.docs[self.docid]
             #self.db._save_to_disk()
             self.db._save_db_info()
@@ -377,8 +377,8 @@ class Document(Resource):
         return Resource.getChild(self, name, request)
 
 class Designer(Resource):
-    def __init__(self, horse):
-        self.db = horse
+    def __init__(self, db):
+        self.db = db
         Resource.__init__(self)
     def getChild(self, name, request):
         if request.method == "PUT" and len(name) > 0:
