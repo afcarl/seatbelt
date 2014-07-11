@@ -361,6 +361,9 @@ class Document(Resource):
             self.db._save_db_info()
             self.db._change({"_id": self.docid, "_deleted": True})
 
+            # update _all_docs
+            self.db.all_docs_resource.doc = make_all_docs(self.db._all_docs)
+
             # remove attachments
             for attachname in self.attachments:
                 os.unlink(os.path.join(self.docpath, attachname))
