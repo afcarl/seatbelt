@@ -367,10 +367,10 @@ SuperEgo.prototype.connect = function() {
                 // Hmmm... maybe I should just make my own protocol.
                 var doc = res.results[0].doc;
 
-                // reload page if ddoc changes
-                if(doc._id.indexOf("_design/") == 0) {
-                    window.location.reload();
-                }
+                // // reload page if ddoc changes
+                // if(doc._id.indexOf("_design/") == 0) {
+                //     window.location.reload();
+                // }
 
                 this._ondocchange(doc);
 
