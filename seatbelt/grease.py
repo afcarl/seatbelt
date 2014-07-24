@@ -3,7 +3,7 @@
 import couchdb
 import time
 import os
-from Queue import Queue
+from Queue import Queue, Empty
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
@@ -51,15 +51,19 @@ def watch(ddoc_dir, db_uri):
     try:
         obs.start()
         while True:
-            # XXX: Keyboard interrupts won't stop this blocking call.
-            # We could add a timeout to catch this in a reasonable amount of time.
-            evtype, ev = q.get()
+            # We need a timeout, or else we can't catch keyboard interrupts, &c.
+            try:
+                evtype, ev = q.get(timeout=0.5)
+            except Empty:
+                continue
             name = ev.src_path
-            fullpath = os.path.join(ddoc_dir, name)
-            if evtype in ["created", "modified"] and valid_filename(name) and not os.path.isdir(fullpath):
+            fullpath = name
+            if evtype in ["created", "modified"] and valid_filename(os.path.basename(name)) and not os.path.isdir(fullpath):
                 print evtype, fullpath
                 ddoc = db[ddocname]
                 db.put_attachment(ddoc, open(fullpath))
+    except KeyboardInterrupt:
+        pass
     finally:
         obs.stop()
     obs.join()
