@@ -84,7 +84,32 @@ def openw(path):
 def opena(path):
     return codecs.open(path, mode='a', encoding='utf8')
 
+
+# Store all of the "parts" of a databse in a dictionary so that one
+# part can be changed and, so long as the function signature matches,
+# things should "just work."
+#
+# This implies reasonable encapsulation of internals, which is somwhat
+# wishful thinking.
+
+class PartsBin:
+    def __init__(self):
+        self._parts = {}
+
+    def __getitem__(self, key):
+        if key in self._parts:
+            return self._parts[key]
+        elif key in globals():
+            return globals()[key]
+        raise KeyError("Cannot find part: %s" % (key))
+    def __setitem__(self, key, val):
+        self._parts[key] = val
+
+PARTS_BIN = PartsBin()
+
 class GetJSON(Resource):
+    # XXX: This is awful: we're doing an O(N) pass every time any object is updated.
+
     def __init__(self, doc):
         Resource.__init__(self)
         self.doc = doc
@@ -120,7 +145,8 @@ class DbUpdates(Resource):
             self._change_waiters[req] = reactor.callLater(60, self._change_timeout, req)
 
 class DbChangesWsFactory(WebSocketServerFactory):
-    def __init__(self, url=None):
+    def __init__(self, db, url=None):
+        self.db = db
         WebSocketServerFactory.__init__(self, url)
         self.clients = {}       # peerstr -> client
 
@@ -158,8 +184,8 @@ class DbChanges(Resource):
         self._change_waiters = {} # request -> timeout
 
         # Create a websocket child
-        self._change_sockets = DbChangesWsFactory()
-        self._change_sockets.protocol = DbChangesWsProtocol
+        self._change_sockets = PARTS_BIN["DbChangesWsFactory"](self.db)
+        self._change_sockets.protocol = PARTS_BIN["DbChangesWsProtocol"]
         self._change_sockets_resource = WebSocketResource(self._change_sockets)
         self.putChild("_ws", self._change_sockets_resource)
 
@@ -231,7 +257,7 @@ class Document(Resource):
                 self._serve_attachment(filename, self._get_mime(filename))
 
     def _serve_attachment(self, filename, mimetype="text/html"):
-        self.attachments[filename] = Attachment(self, os.path.join(self.docpath, filename),
+        self.attachments[filename] = PARTS_BIN["Attachment"](self, os.path.join(self.docpath, filename),
                                               defaultType=mimetype)
         self.putChild(filename, self.attachments[filename])
 
@@ -349,27 +375,8 @@ class Document(Resource):
             hashstr[2:])
 
     def render_DELETE(self, request):
-        doc = self.db.getdoc(self.docid)
-        revid = request.args["rev"][0]
-
         request.headers["Content-Type"] = "application/json"
-
-        if doc["_rev"] == revid:
-            del self.db._all_docs[self.docid]
-            del self.db.docs[self.docid]
-            #self.db._save_to_disk()
-            self.db._save_db_info()
-            self.db._change({"_id": self.docid, "_deleted": True})
-
-            # update _all_docs
-            self.db.all_docs_resource.doc = make_all_docs(self.db._all_docs)
-
-            # remove attachments
-            for attachname in self.attachments:
-                os.unlink(os.path.join(self.docpath, attachname))
-            if os.path.exists(self.docpath):
-                os.rmdir(self.docpath)
-
+        if self.db.delete_doc(self.docid, request.args["rev"][0]):
             return json_dumpsu({"ok": True})
         else:
             return json_dumpsu({"error": "not found or revid mismatch"})
@@ -439,7 +446,7 @@ class Database(Resource):
         self.dbpath = dbpath
         self.dbname = os.path.basename(dbpath)
 
-        self.change_resource = DbChanges(self)
+        self.change_resource = PARTS_BIN["DbChanges"](self)
         self.putChild("_changes", self.change_resource)
 
         # defaults -- potentially overwritten in `self._load_from_disk()' call
@@ -452,7 +459,7 @@ class Database(Resource):
         # We need to use an intermediate object for the Designer
         # because _design/<name> is interpreted by twisted as two
         # levels deep.
-        self.designer_resource = Designer(self)
+        self.designer_resource = PARTS_BIN["Designer"](self)
         self.putChild("_design", self.designer_resource)
 
         self._serve_docs()
@@ -521,7 +528,7 @@ class Database(Resource):
         # only create resource if doc is new
         if docid not in self.docs:
             if id_is_ddoc(docid):
-                self.docs[docid] = DesignDoc(self, os.path.join(self.dbpath, docid))
+                self.docs[docid] = PARTS_BIN["DesignDoc"](self, os.path.join(self.dbpath, docid))
                 self.designer_resource.putChild(docid.split("/")[1], self.docs[docid])
 
                 # Also put as a child here -- for some reason HEAD requests stop here otherwise?!
@@ -529,7 +536,7 @@ class Database(Resource):
                 self.putChild(docid, self.docs[docid])
 
             else:
-                self.docs[docid] = Document(self, os.path.join(self.dbpath, docid))
+                self.docs[docid] = PARTS_BIN["Document"](self, os.path.join(self.dbpath, docid))
                 self.putChild(docid, self.docs[docid])
 
     def getdoc(self, docid):
@@ -539,6 +546,29 @@ class Database(Resource):
         upd = self._try_update(doc)
         if upd.get("ok"):
             return self.docs[doc["_id"]]
+
+    def delete_doc(self, docid, revid):
+        doc = self.getdoc(docid)
+        docobj = self.docs[docid]
+
+        if doc["_rev"] == revid:
+            del self._all_docs[docid]
+            del self.docs[docid]
+            #self.db._save_to_disk()
+            self._save_db_info()
+            self._change({"_id": docid, "_deleted": True})
+
+            # update _all_docs
+            self.all_docs_resource.doc = make_all_docs(self._all_docs)
+
+            # remove attachments
+            for attachname in docobj.attachments:
+                os.unlink(os.path.join(docobj.docpath, attachname))
+            if os.path.exists(docobj.docpath):
+                os.rmdir(docobj.docpath)
+
+            return True
+        return False
 
     def _try_update(self, doc):
         docid = doc["_id"]
@@ -628,7 +658,7 @@ class Seatbelt(Resource):
         if not os.path.exists(datadir):
             os.makedirs(datadir)
 
-        self.db_updates_resource = DbUpdates()
+        self.db_updates_resource = PARTS_BIN["DbUpdates"]()
         self.putChild("_db_updates", self.db_updates_resource)
 
         self._all_dbs = []
@@ -688,7 +718,7 @@ class Seatbelt(Resource):
             self._serve_db(dbname)
 
     def _serve_db(self, dbname):
-        self.dbs[dbname] = Database(self, os.path.join(self.datadir, dbname))
+        self.dbs[dbname] = PARTS_BIN["Database"](self, os.path.join(self.datadir, dbname))
         self.putChild(dbname, self.dbs[dbname])
 
     def getChild(self, name, req):
@@ -701,7 +731,7 @@ class Seatbelt(Resource):
             return self
         return Resource.getChild(self, name, req)
 
-def linkddocs(db, srcdir, copy=False):
+def _getddoc(db, srcdir):
     ddocname = get_ddocname(srcdir)
 
     if ddocname in db.docs:
@@ -709,25 +739,52 @@ def linkddocs(db, srcdir, copy=False):
     else:
         ddoc = db.create_doc({"_id": ddocname, "type": "design"})
 
+    return ddoc
+
+def linkddocs(db, srcdir, copy=False):
+    ddoc = _getddoc(db, srcdir)
     for fname in os.listdir(srcdir):
         if valid_filename(fname) and fname not in ddoc.doc.get("_attachments", {}):
             ddoc.link_attachment(os.path.join(srcdir, fname))
 
     return ddoc
 
-def serve(dbdir, port=6984, interface='0.0.0.0', queue=None, defaultdb=None, defaultddocs=None):
+def trackddocs(db, srcdir, db_uri):
+    import grease
+    import multiprocessing
+    
+    ddoc = _getddoc(db, srcdir)
+
+    def _track():
+        # XXX: Ideally, we would `sync' synchronously and block until
+        # completion, but this seems simpler to implement.
+        import time
+        print "starting track!", db_uri
+        grease.sync(srcdir, db_uri)
+        grease.watch(srcdir, db_uri)
+    
+    return ddoc, multiprocessing.Process(target=_track)
+
+def serve(dbdir, port=6984, interface='0.0.0.0', queue=None, defaultdb=None, defaultddocs=None, ddoclink=False):
     seatbelt = Seatbelt(dbdir)
     site = Site(seatbelt)
 
     local_root_uri = "http://%s:%d" % (interface, port)
+    do_track = None
     if defaultdb is not None:
         db = seatbelt.get_or_create_db(defaultdb)
         if defaultddocs is not None:
-            ddoc = linkddocs(db, defaultddocs)
+            if ddoclink:
+                ddoc = linkddocs(db, defaultddocs)
+            else:
+                ddoc, do_track = trackddocs(db, defaultddocs, local_root_uri + "/db")
             site = Site(ddoc.rewrite_resource)
             local_root_uri += "/root/"
 
     reactor.listenTCP(port, site, interface=interface)
+
+    if do_track is not None:
+        do_track.start()
 
     if queue is not None:
         queue.put(local_root_uri)

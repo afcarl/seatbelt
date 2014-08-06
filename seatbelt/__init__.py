@@ -1,1 +1,1 @@
-from seatbelt import serve, Seatbelt
+from seatbelt import serve, Seatbelt, PARTS_BIN

@@ -352,11 +352,19 @@ SuperEgo.prototype.connect = function() {
         // Derive web socket URL
         // TODO: crypto
         var url = "ws://" + window.location.host;
+
+	// XXX: What are these cases?
         if(this.db[0] == "/") {
             url += this.db;
         }
         else {
-            url += window.location.pathname + this.db;
+	    // Strip the end of the url
+	    var path = window.location.pathname;
+	    if(path[path.length-1] !=="/") {
+		var pathparts = path.split("/");
+		path = pathparts.slice(0, pathparts.length-1).join("/") + "/";
+	    }
+            url += path + this.db;
         }
         url += "_changes/_ws";
 
