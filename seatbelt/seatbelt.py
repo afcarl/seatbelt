@@ -108,14 +108,27 @@ class PartsBin:
 PARTS_BIN = PartsBin()
 
 class GetJSON(Resource):
-    # XXX: This is awful: we're doing an O(N) pass every time any object is updated.
-
     def __init__(self, doc):
         Resource.__init__(self)
         self.doc = doc
     def render_GET(self, request):
         request.headers["Content-Type"] = "application/json"
         return json_dumpsu(self.doc)
+
+class GetAllJSON(Resource):
+    # Lazy (cached) JSON representation of _all_docs
+    def __init__(self, doc):
+        Resource.__init__(self)
+        self.doc = doc
+        self._cache = None
+    def wipe_cache(self):
+        self._cache = None
+    def render_GET(self, request):
+        if self._cache is None:
+            self._cache = make_all_docs(self.doc)
+        request.headers["Content-Type"] = "application/json"
+        return json_dumpsu(self._cache)
+
 
 class DbUpdates(Resource):
     def __init__(self):
@@ -464,7 +477,7 @@ class Database(Resource):
 
         self._serve_docs()
 
-        self.all_docs_resource = GetJSON(make_all_docs(self._all_docs))
+        self.all_docs_resource = GetAllJSON(self._all_docs)
         self.putChild("_all_docs", self.all_docs_resource)
 
         self._change_waiters = {} # request -> timeout_callback
@@ -558,8 +571,7 @@ class Database(Resource):
             self._save_db_info()
             self._change({"_id": docid, "_deleted": True})
 
-            # update _all_docs
-            self.all_docs_resource.doc = make_all_docs(self._all_docs)
+            self.all_docs_resource.wipe_cache()
 
             # remove attachments
             for attachname in docobj.attachments:
@@ -580,7 +592,7 @@ class Database(Resource):
 
         doc["_rev"] = make_rev(doc)
         self._all_docs[docid] = doc
-        self.all_docs_resource.doc = make_all_docs(self._all_docs)
+        self.all_docs_resource.wipe_cache()
         self._serve_doc(docid)
 
         # Send document to anyone watching DB changes
