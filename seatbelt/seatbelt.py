@@ -187,8 +187,9 @@ class DbChangesWsProtocol(WebSocketServerProtocol):
         self.factory.unregister(self)
 
     def onMessage(self, payload, isBinary):
-        # TODO: Allow database updates over websockets (why not?)
-        print "Message from", self.peer, ":", payload
+        # Interpret incoming comands as database updates
+        doc = json.loads(payload)
+        self.factory.db._try_update(doc)
 
 class DbChanges(Resource):
     def __init__(self, db):
@@ -590,8 +591,8 @@ class Database(Resource):
         if docid in self._all_docs and self._all_docs[docid].get("_rev") != doc.get("_rev"):
             return {"error": "revision conflict"}
 
-        # don't increment `rev' on `__volatile' updates
-        if not doc.get("__volatile"):
+        # don't increment `rev' on `_volatile' updates
+        if not doc.get("_volatile"):
             doc["_rev"] = make_rev(doc)
 
         self._all_docs[docid] = doc
@@ -602,7 +603,7 @@ class Database(Resource):
         self._change(doc)
 
         # update _db_info
-        if not doc.get("__volatile"):
+        if not doc.get("_volatile"):
             self._save_db_info()
 
         return {"ok": True, "rev": doc.get("_rev"), "id": doc["_id"]}
@@ -616,7 +617,7 @@ class Database(Resource):
         self.seatbelt._change("updated", self.dbname)
 
         # Serialize update
-        if not doc.get("__volatile"):
+        if not doc.get("_volatile"):
             self._changes[self._db_info["update_seq"]] = doc
 
             # Sync change to disk
@@ -625,7 +626,7 @@ class Database(Resource):
 
         self.change_resource._change(doc)
 
-        if not doc.get("__volatile"):
+        if not doc.get("_volatile"):
             self._db_info["update_seq"] += 1
         
     def _change_timeout(self, request):

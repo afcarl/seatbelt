@@ -217,23 +217,31 @@ SuperEgo.prototype.items = function(sortfn) {
 SuperEgo.prototype.save = function(doc, success, error) {
     var that = this;
 
-    var xhr = new XMLHttpRequest();
-    xhr.open("PUT", this.db + encodeURIComponent(doc._id), true);
-    xhr.setRequestHeader("Content-Type", "application/json");
-    xhr.onload = function() {
-        var res = JSON.parse(this.responseText);
-        that.checkpoint(doc._id, res.rev, !!!doc._rev);
-
-        if(res.ok && success) {
-            success(res);
-        }
-        else if(!res.ok && error) {
-            error(res);
-        }
+    if(this.socket) {
+	// XXX: Need to implement success/error on websocket
+	this.socket.send(JSON.stringify(doc));
     }
-    xhr.send(JSON.stringify(doc));
+    else {
+	var xhr = new XMLHttpRequest();
+	xhr.open("PUT", this.db + encodeURIComponent(doc._id), true);
+	xhr.setRequestHeader("Content-Type", "application/json");
+	xhr.onload = function() {
+            var res = JSON.parse(this.responseText);
+            that.checkpoint(doc._id, res.rev, !!!doc._rev);
+
+            if(res.ok && success) {
+		success(res);
+            }
+            else if(!res.ok && error) {
+		error(res);
+            }
+	}
+	xhr.send(JSON.stringify(doc));
+    }
 };
 SuperEgo.prototype.remove = function(id, rev, success, error) {
+
+    // XXX: Implement over web sockets--set __deleted=True or smth
 
     var that = this;
     this.trigger("delete", this.get(id));
