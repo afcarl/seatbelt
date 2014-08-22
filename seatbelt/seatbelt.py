@@ -804,10 +804,18 @@ def serve(dbdir, port=6984, interface='0.0.0.0', queue=None, defaultdb=None, def
 
     if queue is not None:
         queue.put(local_root_uri)
-
+        
     reactor.run()
-
 
 if __name__=='__main__':
     import sys
-    serve(sys.argv[1])
+    if len(sys.argv) == 2:
+        serve(sys.argv[1])
+    elif len(sys.argv) == 1:
+        import tempfile
+        tdir = tempfile.mkdtemp()
+        print "Serializing to: %s" % (tdir)
+        serve(tdir)
+    else:
+        print "usage: python seatbelt.py [database_path]"
+        sys.exit(1)
