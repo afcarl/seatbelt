@@ -564,7 +564,7 @@ class Database(Resource):
         doc = self.getdoc(docid)
         docobj = self.docs[docid]
 
-        if doc["_rev"] == revid:
+        if doc.get("_rev") == revid:
             del self._all_docs[docid]
             del self.docs[docid]
             #self.db._save_to_disk()
@@ -587,10 +587,13 @@ class Database(Resource):
         if not valid_id(docid):
             return {"error": "invalid id"}
 
-        if docid in self._all_docs and self._all_docs[docid]["_rev"] != doc.get("_rev"):
+        if docid in self._all_docs and self._all_docs[docid].get("_rev") != doc.get("_rev"):
             return {"error": "revision conflict"}
 
-        doc["_rev"] = make_rev(doc)
+        # don't increment `rev' on `__volatile' updates
+        if not doc.get("__volatile"):
+            doc["_rev"] = make_rev(doc)
+
         self._all_docs[docid] = doc
         self.all_docs_resource.wipe_cache()
         self._serve_doc(docid)
@@ -598,12 +601,11 @@ class Database(Resource):
         # Send document to anyone watching DB changes
         self._change(doc)
 
-        # Save after sending the change so _db_info update is serialized
-        # self._save_to_disk()
-        # Only update _db_info
-        self._save_db_info()
+        # update _db_info
+        if not doc.get("__volatile"):
+            self._save_db_info()
 
-        return {"ok": True, "rev": doc["_rev"], "id": doc["_id"]}
+        return {"ok": True, "rev": doc.get("_rev"), "id": doc["_id"]}
 
     def render_GET(self, request):
         request.headers["Content-Type"] = "application/json"
@@ -614,15 +616,17 @@ class Database(Resource):
         self.seatbelt._change("updated", self.dbname)
 
         # Serialize update
-        self._changes[self._db_info["update_seq"]] = doc
+        if not doc.get("__volatile"):
+            self._changes[self._db_info["update_seq"]] = doc
 
-        # Sync change to disk
-        with opena(os.path.join(self.dbpath, "_changes")) as fh:
-            fh.write("%s\n" % (json_dumps(make_change(doc, self._db_info["update_seq"]))))
+            # Sync change to disk
+            with opena(os.path.join(self.dbpath, "_changes")) as fh:
+                fh.write("%s\n" % (json_dumps(make_change(doc, self._db_info["update_seq"]))))
 
         self.change_resource._change(doc)
 
-        self._db_info["update_seq"] += 1
+        if not doc.get("__volatile"):
+            self._db_info["update_seq"] += 1
         
     def _change_timeout(self, request):
         del self._change_waiters[request]
