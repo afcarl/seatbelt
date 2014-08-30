@@ -1078,7 +1078,7 @@ CollectionMap.prototype.items = function(sortfn) {
     return out;
 };
 CollectionMap.prototype.get = function(key) {
-    return this._mapping[key];
+    return this._mapping[key] || [];
 };
 
 
