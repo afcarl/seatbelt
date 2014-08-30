@@ -748,6 +748,47 @@ class Seatbelt(Resource):
             return self
         return Resource.getChild(self, name, req)
 
+class PirateBelt(Seatbelt):
+    # Piratepad-style Seatbelt variant
+
+    # make /links go to the _rewrite url of a database that's created
+    # & populated on-demand
+    def __init__(self, dbdir, landing_path, ddoc_path):
+        self.ddoc_path = ddoc_path
+        self.ddoc_name = "_design/%s" % (ddoc_path.split("/")[-1])
+        self.file_resource = File(landing_path)
+        Seatbelt.__init__(self, dbdir)
+
+    def _serve_db(self, dbname):
+        # Add the _rewrite root, instead of the db root
+        self.dbs[dbname] = PARTS_BIN["Database"](self, os.path.join(self.datadir, dbname))
+        # Link the ddocs
+        ddoc = linkddocs(self.dbs[dbname], self.ddoc_path)
+        self.putChild(dbname, ddoc.rewrite_resource)
+
+    def on_db_create(self, db):
+        pass
+
+    def getChild(self, name, request):
+        if request.method == "GET":
+            # Let's assume that all file are either empty (-> index.html) or have a period in them.
+            if len(name) == 0 or "." in name:
+                return self.file_resource.getChild(name, request)
+            elif "_" in name:
+                # Why *not* allow some of the db tracking APIs...
+                return self
+            else:
+                # get_or_create db?
+                db = self.create_db(name)
+
+                self.on_db_create(db)
+
+                # Return new ddoc _rewrite
+                return db.docs[self.ddoc_name].rewrite_resource
+        else:
+            # Error? 
+            return Resource.getChild(self, name, request)
+
 def _getddoc(db, srcdir):
     ddocname = get_ddocname(srcdir)
 
@@ -775,15 +816,13 @@ def trackddocs(db, srcdir, db_uri):
     def _track():
         # XXX: Ideally, we would `sync' synchronously and block until
         # completion, but this seems simpler to implement.
-        import time
-        print "starting track!", db_uri
         grease.sync(srcdir, db_uri)
         grease.watch(srcdir, db_uri)
     
     return ddoc, multiprocessing.Process(target=_track)
 
 def serve(dbdir, port=6984, interface='0.0.0.0', queue=None, defaultdb=None, defaultddocs=None, ddoclink=False):
-    seatbelt = Seatbelt(dbdir)
+    seatbelt = PARTS_BIN["Seatbelt"](dbdir)
     site = Site(seatbelt)
 
     local_root_uri = "http://%s:%d" % (interface, port)
