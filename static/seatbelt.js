@@ -159,6 +159,9 @@ SuperModel.prototype.put_file_attachment = function(name, file, cb, progress_cb)
 SuperModel.prototype.remove_attachment = function(name) {
     delete this._attachments[name];
 };
+SuperModel.prototype.get_attachment_url = function(name) {
+    return this.__ego.db + this._id + "/" + name;
+}
 SuperModel.prototype._make_id = function() {
     this._id = "id_" + ("" + Math.random()).slice(2);
 };
@@ -218,8 +221,12 @@ SuperEgo.prototype.save = function(doc, success, error) {
     var that = this;
 
     if(this.socket) {
-	// XXX: Need to implement success/error on websocket
 	this.socket.send(JSON.stringify(doc));
+	// Fire success when we get the new doc back
+	// XXX: We have no idea if this is a success or not.
+	this.get(doc._id).once("_rev-change", function() {
+	    success({ok: true, rev: this.get(doc._id)._rev}); // XXX: better emulate couch success call?
+	}.bind(this));
     }
     else {
 	var xhr = new XMLHttpRequest();
