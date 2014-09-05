@@ -34,6 +34,7 @@ curl http://localhost:6984/db1/_design/testing/_rewrite/
 """
 
 import codecs
+import gzip
 import hashlib
 import json
 import mimetypes
@@ -527,6 +528,17 @@ class Database(Resource):
                 if len(line.strip()) > 2:
                     c = json.loads(line)
                     self._all_docs[c["id"]] = c["doc"]
+
+            # Archive _changes file as _changes.%d.gz
+            changes_fh = open(changes_file)
+            changes_out_pattern = os.path.join(self.dbpath, "_changes.%d.gz")
+            changes_out_idx = 1
+            while os.path.exists(changes_out_pattern % (changes_out_idx)):
+                changes_out_idx += 1
+            changes_out_fh = gzip.open(changes_out_pattern % (changes_out_idx), 'wb')
+            changes_out_fh.writelines(changes_fh)
+            changes_out_fh.close()
+            changes_fh.close()
 
         db_info_file = os.path.join(self.dbpath, "_db_info")
         if os.path.exists(db_info_file):
