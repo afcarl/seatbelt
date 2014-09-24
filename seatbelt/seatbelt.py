@@ -470,6 +470,7 @@ class Database(Resource):
         self._changes = {}      # seqno -> [doc]
 
         self._load_from_disk()
+        self.all_docs_resource = GetAllJSON(self._all_docs)
 
         # We need to use an intermediate object for the Designer
         # because _design/<name> is interpreted by twisted as two
@@ -479,7 +480,6 @@ class Database(Resource):
 
         self._serve_docs()
 
-        self.all_docs_resource = GetAllJSON(self._all_docs)
         self.putChild("_all_docs", self.all_docs_resource)
 
         self._change_waiters = {} # request -> timeout_callback
@@ -549,7 +549,6 @@ class Database(Resource):
     def _serve_docs(self):
         for docid in self._all_docs:
             self._serve_doc(docid)
-
     def _serve_doc(self, docid):
         # only create resource if doc is new
         if docid not in self.docs:
