@@ -832,26 +832,35 @@ def trackddocs(db, srcdir, db_uri):
     
     return ddoc, multiprocessing.Process(target=_track)
 
-def serve(dbdir, port=6984, interface='0.0.0.0', queue=None, defaultdb=None, defaultddocs=None, ddoclink=False):
+def serve(dbdir, port=6984, interface='0.0.0.0', queue=None, defaultdb=None, defaultddocs=None, ddoclink=False, otherddocs=[]):
     seatbelt = PARTS_BIN["Seatbelt"](dbdir)
     site = Site(seatbelt)
 
     local_root_uri = "http://%s:%d" % (interface, port)
-    do_track = None
+    do_track = []
     if defaultdb is not None:
         db = seatbelt.get_or_create_db(defaultdb)
         if defaultddocs is not None:
             if ddoclink:
                 ddoc = linkddocs(db, defaultddocs)
             else:
-                ddoc, do_track = trackddocs(db, defaultddocs, local_root_uri + "/db")
+                ddoc, _track = trackddocs(db, defaultddocs, local_root_uri + "/db")
+                do_track.append(_track)
+
+            for odd in otherddocs:
+                if ddoclink:
+                    linkddocs(db, odd)
+                else:
+                    _dd, _track = trackddocs(db, odd, local_root_uri + "/db")
+                    do_track.append(_track)
+
             site = Site(ddoc.rewrite_resource)
             local_root_uri += "/root/"
 
     reactor.listenTCP(port, site, interface=interface)
 
-    if do_track is not None:
-        do_track.start()
+    for t in do_track:
+        t.start()
 
     if queue is not None:
         queue.put(local_root_uri)
