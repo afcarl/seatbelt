@@ -849,10 +849,11 @@ def serve(dbdir, port=6984, interface='0.0.0.0', queue=None, defaultdb=None, def
 
             for odd in otherddocs:
                 if ddoclink:
-                    linkddocs(db, odd)
+                    o_ddoc = linkddocs(db, odd)
                 else:
-                    _dd, _track = trackddocs(db, odd, local_root_uri + "/db")
+                    o_ddoc, _track = trackddocs(db, odd, local_root_uri + "/db")
                     do_track.append(_track)
+                ddoc.rewrite_resource.putChild(odd.split("/")[-1], o_ddoc.rewrite_resource)
 
             site = Site(ddoc.rewrite_resource)
             local_root_uri += "/root/"
