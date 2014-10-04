@@ -764,8 +764,9 @@ class PirateBelt(Seatbelt):
 
     # make /links go to the _rewrite url of a database that's created
     # & populated on-demand
-    def __init__(self, dbdir, landing_path, ddoc_path):
+    def __init__(self, dbdir, landing_path, ddoc_path, otherddocs=None):
         self.ddoc_path = ddoc_path
+        self.otherddocs = otherddocs or []
         self.ddoc_name = "_design/%s" % (ddoc_path.split("/")[-1])
         self.file_resource = File(landing_path)
         Seatbelt.__init__(self, dbdir)
@@ -776,6 +777,10 @@ class PirateBelt(Seatbelt):
         # Link the ddocs
         ddoc = linkddocs(self.dbs[dbname], self.ddoc_path)
         self.putChild(dbname, ddoc.rewrite_resource)
+
+        for odd in self.otherddocs:
+            o_ddoc = linkddocs(self.dbs[dbname], odd)
+            ddoc.rewrite_resource.putChild(odd.split("/")[-1], o_ddoc.rewrite_resource)
 
     def on_db_create(self, db):
         pass
