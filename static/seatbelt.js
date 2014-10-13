@@ -1027,6 +1027,9 @@ var CollectionMap = function(collection, keyfn) {
     this.ingest();
 };
 CollectionMap.prototype = new CollectionWatcher;
+CollectionMap.prototype._id = function(obj) {
+    return (obj._id || obj);
+}
 CollectionMap.prototype.ingest = function() {
     this.collection.items().forEach(function(x) {
         this._create(x);
@@ -1056,7 +1059,7 @@ CollectionMap.prototype._remove_kv = function(key, value) {
 };
 CollectionMap.prototype._create = function(obj) {
     var keys = this.keyfn(obj);
-    this._revmapping[obj._id] = keys;
+    this._revmapping[this._id(obj)] = keys;
     var that = this;
     keys.forEach(function(key) {
         that._concat_kv(key, obj);
@@ -1065,7 +1068,7 @@ CollectionMap.prototype._create = function(obj) {
 CollectionMap.prototype._change = function(obj) {
     var that = this;
     var newkeys = this.keyfn(obj);
-    var oldkeys = this._revmapping[obj._id] || [];
+    var oldkeys = this._revmapping[this._id(obj)] || [];
 
     // add new keys
     newkeys.forEach(function(key) {
@@ -1081,14 +1084,14 @@ CollectionMap.prototype._change = function(obj) {
         }
     });
 
-    this._revmapping[obj._id] = newkeys;
+    this._revmapping[this._id(obj)] = newkeys;
 };
 CollectionMap.prototype._delete = function(obj) {
     var that = this;
-    this._revmapping[obj._id].forEach(function(key) {
+    this._revmapping[this._id(obj)].forEach(function(key) {
         that._remove_kv(key, obj);
     });
-    delete this._revmapping[obj._id];
+    delete this._revmapping[this._id(obj)];
 };
 CollectionMap.prototype.items = function(sortfn) {
     var out = [];
