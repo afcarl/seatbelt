@@ -878,29 +878,11 @@ var CollectionWatcher = function(collection) {
     }
 
     this.collection = collection;
-
-    // Keep track of all listeners for clean teardown.
-    this._tracks = [];      // [{obj, evtname, cbid}]
-
-    // Watch the `create,' `change,' and `delete signals.
-    var that = this;
-    function watch(evtname, fn) {
-        that._tracks.push({
-            obj: that.collection,
-            evtname: evtname,
-            cbid: that.collection.bind(evtname, fn)});
-    }
-    watch("delete", function(obj) { that._delete(obj);});
-    watch("create", function(obj) { that._create(obj);});
-    watch("change", function(obj) { that._change(obj);});
+    this.connect(this.collection, "delete", this._delete.bind(this));
+    this.connect(this.collection, "create", this._create.bind(this));
+    this.connect(this.collection, "change", this._change.bind(this));
 }
 CollectionWatcher.prototype = new Triggerable;
-CollectionWatcher.prototype.destroy = function() {
-    // stop tracking
-    this._tracks.forEach(function(tr) {
-        tr.obj.unbind(tr.evtname, tr.cbid);
-    });
-};
 CollectionWatcher.prototype._create = function() { throw("not implemented");};
 CollectionWatcher.prototype._change = function() { throw("not implemented");};
 CollectionWatcher.prototype._delete = function() { throw("not implemented");};
@@ -1106,8 +1088,6 @@ CollectionMap.prototype.items = function(sortfn) {
 CollectionMap.prototype.get = function(key) {
     return this._mapping[key] || [];
 };
-
-
 
 var SuperMarket = function(collection, renderfn, child_tagname, sortby, $parent_el) {
     CollectionWatcher.call(this, collection);
