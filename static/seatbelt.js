@@ -52,6 +52,22 @@ Triggerable.prototype.reset = function() {
         }
     }
 };
+Triggerable.prototype.connect = function(remote_obj, name, cb) {
+    // Make a connection to a remote object; keep track of all such
+    // connections so that they can be destroyed all at once.
+    if(this.__connections === undefined) {
+	this.__connections = [];
+    }
+    var cbid = remote_obj.bind(name, cb);
+    this.__connections.push([remote_obj, name, cbid]);
+}
+Triggerable.prototype.destroy = function() {
+    // Remove all inbound connections
+    (this.__connections || []).forEach(function(con_obj) {
+	con_obj[0].unbind(con_obj[1], con_obj[2]);
+    });
+    this.__connections = undefined;
+}
 
 var SuperModel = function(ego, doc) {
     Triggerable.call(this);
