@@ -581,7 +581,7 @@ class Database(Resource):
         doc = self.getdoc(docid)
         docobj = self.docs[docid]
 
-        if doc.get("_rev") == revid:
+        if doc.get("_volatile") or doc.get("_rev") == revid:
             del self._all_docs[docid]
             del self.docs[docid]
             #self.db._save_to_disk()
