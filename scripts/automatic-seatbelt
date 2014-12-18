@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 # Commands for automatic seatbelt application
 # ("Seatbelts that automatically move into position around a vehicle occupant")
 

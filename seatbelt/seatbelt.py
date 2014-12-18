@@ -424,6 +424,11 @@ class DesignDoc(Document):
         self.rewrite_resource.indexNames = ["index.html"]
         self.rewrite_resource.putChild("db", self.db)
         self.rewrite_resource.putChild("root", self.db.seatbelt) # insecure!
+
+        # Include seatbelt.js
+        self.rewrite_resource.putChild("seatbelt.js", File(os.path.join(
+            os.path.dirname(__file__), 'static', 'seatbelt.js')))
+
         self.putChild("_rewrite", self.rewrite_resource)
 
         # Create symlink structure so that static version will work

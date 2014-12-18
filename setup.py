@@ -10,4 +10,6 @@ distutils.core.setup(
     author='Robert M Ochshorn',
     author_email='rmo@numm.org',
     packages=['seatbelt'],
+    scripts=['scripts/automatic-seatbelt'],
+    package_data={'seatbelt': ['static/*.js']},
     license='AGPL')

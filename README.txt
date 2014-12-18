@@ -1,8 +1,23 @@
-Seatbelt is fast-moving database/development/distribution base.
+Seatbelt is a http/websocket database/server
 
-The DATABASE is a file-system-backed CouchDB clone;
+= Installation
 
-for DEVELOPMENT a bootsrapping web-app is provided; and
+pip install -r requirements.txt
 
-cross-platform extensible DISTRIBUTION is documented.
+= Server-side Usage
+
+seatbelt.serve()
+
+= Client-side Usage
+
+S.Database
+S.Document
+
+S.Subcollection
+S.CollectionMap
+
+S.CollectionView
+
+S.Triggerable
+S.CollectionWatcher
 
