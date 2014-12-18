@@ -491,7 +491,7 @@ var S = {};
     $.CollectionWatcher.prototype._change = function() { throw("not implemented");};
     $.CollectionWatcher.prototype._delete = function() { throw("not implemented");};
 
-    var Subcollection = function(collection, filterfn, initial) {
+    $.Subcollection = function(collection, filterfn, initial) {
 	$.CollectionWatcher.call(this, collection);
 
 	this.filterfn = filterfn;
@@ -511,25 +511,25 @@ var S = {};
             this.ingest();
 	}
     };
-    Subcollection.prototype = new $.CollectionWatcher;
-    Subcollection.prototype._id = function(obj) {
+    $.Subcollection.prototype = new $.CollectionWatcher;
+    $.Subcollection.prototype._id = function(obj) {
 	return obj._id || obj;
     }
-    Subcollection.prototype._create = function(obj) {
+    $.Subcollection.prototype._create = function(obj) {
 	this._sorted = null;
 	if(this.filterfn(obj)) {
             this._items[this._id(obj)] = obj;
             this.trigger("create", obj);
 	}
     };
-    Subcollection.prototype._delete = function(obj) {
+    $.Subcollection.prototype._delete = function(obj) {
 	this._sorted = null;
 	if(this._id(obj) in this._items) {
             delete this._items[this._id(obj)];
             this.trigger("delete", obj);
 	}
     };
-    Subcollection.prototype._change = function(obj) {
+    $.Subcollection.prototype._change = function(obj) {
 	this._sorted = null;
 	var in_collection = this.filterfn(obj);
 	if(!in_collection) {
@@ -547,10 +547,10 @@ var S = {};
             }
 	}
     };
-    Subcollection.prototype.get = function(id) {
+    $.Subcollection.prototype.get = function(id) {
 	return this._items[id];
     };
-    Subcollection.prototype.items = function(sortfn) {
+    $.Subcollection.prototype.items = function(sortfn) {
 	// XXX: the subcollection cache is particularly sinister because
 	// the same subcollection may be accessed by multiple sort
 	// functions. For the moment, I assume that they're all the same,
@@ -571,7 +571,7 @@ var S = {};
 	}
 	return this._sorted;
     };
-    Subcollection.prototype.ingest = function() {
+    $.Subcollection.prototype.ingest = function() {
 	// Build up a new map of {id->obj} and merge with the current
 	// map, firing events as needed.
 
