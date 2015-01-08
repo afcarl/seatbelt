@@ -85,6 +85,16 @@ def openw(path):
 def opena(path):
     return codecs.open(path, mode='a', encoding='utf8')
 
+ALLOW_CROSS_ORIGIN = True
+
+def _cors(request):
+    if ALLOW_CROSS_ORIGIN:
+        request.setHeader('Access-Control-Allow-Methods', 'GET, PUT, POST, DELETE, OPTIONS')
+        request.setHeader('Access-Control-Allow-Origin', '*')
+        request.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+
+
+
 
 # Store all of the "parts" of a databse in a dictionary so that one
 # part can be changed and, so long as the function signature matches,
@@ -113,8 +123,11 @@ class GetJSON(Resource):
         Resource.__init__(self)
         self.doc = doc
     def render_GET(self, request):
+        _cors(request)
+
         request.headers["Content-Type"] = "application/json"
         return json_dumpsu(self.doc)
+
 
 class GetAllJSON(Resource):
     # Lazy (cached) JSON representation of _all_docs
@@ -125,6 +138,8 @@ class GetAllJSON(Resource):
     def wipe_cache(self):
         self._cache = None
     def render_GET(self, request):
+        _cors(request)
+
         if self._cache is None:
             self._cache = make_all_docs(self.doc)
         request.headers["Content-Type"] = "application/json"
@@ -136,6 +151,8 @@ class DbUpdates(Resource):
         Resource.__init__(self)
         self._change_waiters = {} # request -> timeout
     def render_GET(self, request):
+        _cors(request)
+
         # XXX: only implemented as feed=continuous&timeout=60
         self._change_waiters[request] = reactor.callLater(
             60, self._change_timeout, request)
@@ -157,6 +174,7 @@ class DbUpdates(Resource):
             # reset timeout
             timeout.cancel()
             self._change_waiters[req] = reactor.callLater(60, self._change_timeout, req)
+
 
 class DbChangesWsFactory(WebSocketServerFactory):
     def __init__(self, db, url=None):
@@ -192,6 +210,12 @@ class DbChangesWsProtocol(WebSocketServerProtocol):
         doc = json.loads(payload)
         self.factory.db._try_update(doc)
 
+class CorsWebSocketResource(WebSocketResource):
+    def getChild(self, name, request):
+        _cors(request)
+        WebSocketResource.getChild(self, name, request)
+
+
 class DbChanges(Resource):
     def __init__(self, db):
         Resource.__init__(self)
@@ -201,10 +225,12 @@ class DbChanges(Resource):
         # Create a websocket child
         self._change_sockets = PARTS_BIN["DbChangesWsFactory"](self.db)
         self._change_sockets.protocol = PARTS_BIN["DbChangesWsProtocol"]
-        self._change_sockets_resource = WebSocketResource(self._change_sockets)
+        self._change_sockets_resource = CorsWebSocketResource(self._change_sockets)
         self.putChild("_ws", self._change_sockets_resource)
 
     def render_GET(self, request):
+        _cors(request)
+
         request.headers["Content-Type"] = "application/json"
         if request.args.get("since") is not None:
             since = int(request.args["since"][0])
@@ -247,7 +273,13 @@ class Attachment(File):
         self.kid = kid
         File.__init__(self, path, **kw)
     def render_PUT(self, request):
+        _cors(request)
         return self.kid.render_PUT(request)
+
+    def getChild(self, name, request):
+        _cors(request)
+        File.getChild(self, name, request)
+
 
 class Document(Resource):
     def __init__(self, db, docpath):
@@ -277,6 +309,8 @@ class Document(Resource):
         self.putChild(filename, self.attachments[filename])
 
     def render_GET(self, request):
+        _cors(request)
+
         request.headers["Content-Type"] = "application/json"
         return json_dumpsu(self.db.getdoc(self.docid))
 
@@ -359,6 +393,8 @@ class Document(Resource):
         return self.db._try_update(self.doc)
 
     def render_PUT(self, request):
+        _cors(request)
+
         #path = request.path.replace("/_design%2F", "/_design/")
         path = urllib.unquote(request.path)
         rempath = path[path.index(self.docid)+len(self.docid)+1:].strip()
@@ -390,13 +426,22 @@ class Document(Resource):
             hashstr[2:])
 
     def render_DELETE(self, request):
+        _cors(request)
+
         request.headers["Content-Type"] = "application/json"
         if self.db.delete_doc(self.docid, request.args["rev"][0]):
             return json_dumpsu({"ok": True})
         else:
             return json_dumpsu({"error": "not found or revid mismatch"})
 
+    def render_OPTIONS(self, request):
+        # XXX: This is needed for DELETE to work.
+        _cors(request)
+        return ""
+
     def getChild(self, name, request):
+        _cors(request)
+
         if request.method == "PUT" and len(name) > 0:
             return self
         return Resource.getChild(self, name, request)
@@ -406,6 +451,8 @@ class Designer(Resource):
         self.db = db
         Resource.__init__(self)
     def getChild(self, name, request):
+        _cors(request)
+
         if request.method == "PUT" and len(name) > 0:
             return self.db.getChild(name, request)
         return Resource.getChild(self, name, request)
@@ -455,6 +502,8 @@ class DesignDoc(Document):
         return "_design/%s" % (self._docid)
 
     def render_GET(self, request):
+        _cors(request)
+
         request.headers["Content-Type"] = "application/json"
         return json_dumpsu(self.db.getdoc(self.docid))
 
@@ -625,6 +674,8 @@ class Database(Resource):
         return {"ok": True, "rev": doc.get("_rev"), "id": doc["_id"]}
 
     def render_GET(self, request):
+        _cors(request)
+
         request.headers["Content-Type"] = "application/json"
         return json_dumpsu(self._db_info)
 
@@ -654,6 +705,8 @@ class Database(Resource):
         del self._change_waiters[request]
 
     def render_PUT(self, request):
+        _cors(request)
+
         doc = json.load(request.content)
 
         docid = request.path.split("/")[-1]
@@ -671,6 +724,8 @@ class Database(Resource):
         return json_dumpsu(self._try_update(doc))
 
     def render_POST(self, request):
+        _cors(request)
+
         doc = json.load(request.content)
         if doc.get("_id") is None:
             doc["_id"] = make_id()
@@ -679,6 +734,8 @@ class Database(Resource):
         return json_dumpsu(self._try_update(doc))
 
     def getChild(self, name, request):
+        _cors(request)
+
         if (request.method == "PUT" and len(name) > 0) or (request.method in ["GET", "POST"] and len(name) == 0):
             return self
         return Resource.getChild(self, name, request)
@@ -706,6 +763,8 @@ class Seatbelt(Resource):
         self.db_updates_resource._change(change_type, db_name)
 
     def render_GET(self, request):
+        _cors(request)
+
         request.headers["Content-Type"] = "application/json"        
         return(json_dumpsu({"db": "seatbelt", "version": -1}))
 
@@ -725,6 +784,8 @@ class Seatbelt(Resource):
         return self.dbs[name]
 
     def render_PUT(self, request):
+        _cors(request)
+
         name = request.path.split("/")[-1]
         self.create_db(name)
 
@@ -755,6 +816,8 @@ class Seatbelt(Resource):
         self.putChild(dbname, self.dbs[dbname])
 
     def getChild(self, name, req):
+        _cors(req)
+
         if req.method=='PUT' and len(name) > 0:
             # db creation
             return self
@@ -791,6 +854,8 @@ class PirateBelt(Seatbelt):
         pass
 
     def getChild(self, name, request):
+        _cors(request)
+
         if request.method == "GET":
             # Let's assume that all file are either empty (-> index.html) or have a period in them.
             if len(name) == 0 or "." in name:

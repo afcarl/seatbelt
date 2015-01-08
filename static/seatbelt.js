@@ -387,9 +387,13 @@ var S = {};
             // Derive web socket URL
             // TODO: crypto
             var url = "ws://" + window.location.host;
-
+            console.log(this.db.slice(0,7));
+            if(this.db.slice(0,7) == "http://") {
+                console.log("remote websocket requested");
+                url = "ws://" + this.db.split("http://")[1];
+            }
 	    // XXX: What are these cases?
-            if(this.db[0] == "/") {
+            else if(this.db[0] == "/") {
 		url += this.db;
             }
             else {
