@@ -73,7 +73,7 @@ def id_is_ddoc(s):
 def make_change(doc, seq_no):
     return {"doc": doc, "id": doc["_id"], "deleted": doc.get("_deleted", False), "seq": seq_no}
 def make_all_docs(docmap):
-    return {"rows": [{"doc": X, "id": X["_id"]} for X in docmap.values()]}
+    return {"rows": [{"doc": X, "id": X["_id"]} for X in docmap.values() if not X.get("_deleted")]}
 def json_dumps(obj):
     return json.dumps(obj, ensure_ascii=True, encoding='utf-8')
 def json_dumpsu(obj):
