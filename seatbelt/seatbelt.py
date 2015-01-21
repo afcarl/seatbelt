@@ -13,7 +13,7 @@ curl -X PUT -d '{"foo": "bar"}' http://localhost:6984/db1/foo
 
 curl http://localhost:6984/db1/_all_docs
 
-curl -X PUT --data-binary @FILE_PATH http://localhost:6984/db1/foo/FILE_NAME?rev=REV_ID
+curl -X PUT --data-binary @FILE_PATH http://localhost:6984/db1/foo/FILE_NAME
 
 curl http://localhost:6984/db1/foo/FILE_NAME
 
@@ -21,11 +21,11 @@ curl http://localhost:6984/db1/_all_docs
 
 curl http://localhost:6984/db1/_changes
 
-curl -X DELETE http://localhost:6984/db1/foo?rev=REV_ID
+curl -X DELETE http://localhost:6984/db1/foo
 
 curl -X PUT -d '{}' http://localhost:6984/db1/_design/testing
 
-curl -X PUT --data-binary @FILE_PATH http://localhost:6984/db1/_design/testing/index.html?rev=REV_ID
+curl -X PUT --data-binary @FILE_PATH http://localhost:6984/db1/_design/testing/index.html
 
 curl http://localhost:6984/db1/_design/testing/index.html
 
@@ -208,6 +208,7 @@ class DbChangesWsProtocol(WebSocketServerProtocol):
     def onMessage(self, payload, isBinary):
         # Interpret incoming comands as database updates
         doc = json.loads(payload)
+
         self.factory.db._try_update(doc)
 
 class CorsWebSocketResource(WebSocketResource):
@@ -403,10 +404,10 @@ class Document(Resource):
             # attachment
             request.headers["Content-Type"] = "application/json"
 
-            # Verify Revision ID
-            revid = request.args["rev"][0]
-            if revid != self.doc["_rev"]:
-                return json_dumpsu({"error": "revid mismatch"})
+            # Don't bother verifying Revision ID! Mua-ha-ha!
+            # revid = request.args["rev"][0]
+            # if revid != self.doc["_rev"]:
+            #     return json_dumpsu({"error": "revid mismatch"})
 
             res = self.put_attachment(request.content, filename=rempath)
             return json_dumpsu(res)
@@ -429,7 +430,7 @@ class Document(Resource):
         _cors(request)
 
         request.headers["Content-Type"] = "application/json"
-        if self.db.delete_doc(self.docid, request.args["rev"][0]):
+        if self.db.delete_doc(self.docid):
             return json_dumpsu({"ok": True})
         else:
             return json_dumpsu({"error": "not found or revid mismatch"})
@@ -626,11 +627,11 @@ class Database(Resource):
         if upd.get("ok"):
             return self.docs[doc["_id"]]
 
-    def delete_doc(self, docid, revid):
+    def delete_doc(self, docid, revid=None):
         doc = self.getdoc(docid)
         docobj = self.docs[docid]
 
-        if doc.get("_volatile") or doc.get("_rev") == revid:
+        if True: #doc.get("_volatile") or doc.get("_rev") == revid:
             del self._all_docs[docid]
             del self.docs[docid]
             #self.db._save_to_disk()
@@ -653,8 +654,8 @@ class Database(Resource):
         if not valid_id(docid):
             return {"error": "invalid id"}
 
-        if docid in self._all_docs and self._all_docs[docid].get("_rev") != doc.get("_rev"):
-            return {"error": "revision conflict"}
+        # if docid in self._all_docs and self._all_docs[docid].get("_rev") != doc.get("_rev"):
+        #     return {"error": "revision conflict"}
 
         # don't increment `rev' on `_volatile' updates
         if not doc.get("_volatile"):
