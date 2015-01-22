@@ -281,6 +281,33 @@ class Attachment(File):
         _cors(request)
         File.getChild(self, name, request)
 
+class Stream(Resource):
+    def __init__(self):
+        Resource.__init__(self)
+        self.stream_factory = StreamFactory()
+        self.stream_factory.protocol = StreamProtocol
+        self.stream_resource = CorsWebSocketResource(self.stream_factory)
+        self.putChild("_ws", self.stream_resource)
+
+class StreamFactory(WebSocketServerFactory):
+    def __init__(self):
+        WebSocketServerFactory.__init__(self, None)
+        self.clients = {}       # peerstr -> client
+
+class StreamProtocol(WebSocketServerProtocol):
+    def onOpen(self):
+        print 'connected stream client', self.peer
+        self.factory.clients[self.peer] = self
+    def connectionLost(self, reason):
+        if self.peer in self.factory.clients:
+            print 'disconnected stream client', self.peer
+            del self.factory.clients[self.peer]
+    def onMessage(self, payload, isBinary):
+        print 'sending payload to %d connected clients' % (len(self.factory.clients)-1)
+        for client in self.factory.clients.values():
+            # Send to all clients excepting self
+            if client.peer != self.peer:
+                client.sendMessage(payload, isBinary=isBinary)
 
 class Document(Resource):
     def __init__(self, db, docpath):
@@ -289,6 +316,9 @@ class Document(Resource):
         self.docpath = docpath
         self._docid = os.path.basename(docpath)
         self.attachments = {}    # name -> File
+        self.streams = {}        # name -> Stream
+        for name in self.doc.get("_streams", {}}):
+            self._serve_stream(name)
         self._load_from_disk()
 
     @property
@@ -303,6 +333,11 @@ class Document(Resource):
         if os.path.exists(self.docpath):
             for filename in os.listdir(self.docpath):
                 self._serve_attachment(filename, self._get_mime(filename))
+
+    def _serve_stream(self, streamname):
+        # websocket-based streaming
+        self.streams[streamname] = Stream()
+        self.putChild(streamname, self.streams[streamname])
 
     def _serve_attachment(self, filename, mimetype="text/html"):
         self.attachments[filename] = PARTS_BIN["Attachment"](self, os.path.join(self.docpath, filename),
@@ -664,6 +699,11 @@ class Database(Resource):
         self._all_docs[docid] = doc
         self.all_docs_resource.wipe_cache()
         self._serve_doc(docid)
+
+        # Initiate new streams
+        for name in doc.get("_streams", {}):
+            if name not in self.docs[docid].streams:
+                self.docs[docid]._serve_stream(name)
 
         # Send document to anyone watching DB changes
         self._change(doc)
