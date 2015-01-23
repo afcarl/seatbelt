@@ -317,7 +317,7 @@ class Document(Resource):
         self._docid = os.path.basename(docpath)
         self.attachments = {}    # name -> File
         self.streams = {}        # name -> Stream
-        for name in self.doc.get("_streams", {}}):
+        for name in self.doc.get("_streams", {}):
             self._serve_stream(name)
         self._load_from_disk()
 
