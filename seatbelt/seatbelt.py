@@ -45,6 +45,9 @@ import time
 import urllib
 import uuid
 
+from threading import Thread, Lock, Event
+from Queue import Queue, Empty
+
 from autobahn.twisted.websocket import WebSocketServerProtocol, \
                                        WebSocketServerFactory
 from autobahn.twisted.resource import WebSocketResource
@@ -93,9 +96,6 @@ def _cors(request):
         request.setHeader('Access-Control-Allow-Origin', '*')
         request.setHeader('Access-Control-Allow-Headers', 'Content-Type')
 
-
-
-
 # Store all of the "parts" of a databse in a dictionary so that one
 # part can be changed and, so long as the function signature matches,
 # things should "just work."
@@ -117,6 +117,46 @@ class PartsBin:
         self._parts[key] = val
 
 PARTS_BIN = PartsBin()
+
+class AsynchronousFileSink(Thread):
+    """The AsynchronousFileSink is a thread that dumps lines of text to a
+    file, while allowing synchronous reads of that file
+    (ie. guaranteeing that nothing has been added while a read is in
+    progress).
+    """
+    def __init__(self, filepath):
+        self.filepath = filepath
+        self.fh = opena(self.filepath)
+        self.msg_queue = Queue()
+        self.msg_lock = Lock()
+        self.quit_event = Event()
+        Thread.__init__(self, target=self._run_forever)
+        self.start()
+
+    def _run_forever(self):
+        while True:
+            if self.quit_event.is_set():
+                return
+            try:
+                line = self.msg_queue.get(timeout=0.5)
+            except Empty:
+                continue
+            with self.msg_lock:
+                self.fh.write("%s\n" % (line))
+
+    def read(self):
+        with self.msg_lock:
+            self.fh.close()     # sync file to disk
+            out = open(self.filepath).read()
+            self.fh = opena(self.filepath)
+        return out
+
+    def put(self, msg):
+        "thread-safe message append function"
+        self.msg_queue.put(msg)
+
+    def stop(self):
+        self.quit_event.set()
 
 class GetJSON(Resource):
     def __init__(self, doc):
@@ -296,14 +336,14 @@ class StreamFactory(WebSocketServerFactory):
 
 class StreamProtocol(WebSocketServerProtocol):
     def onOpen(self):
-        print 'connected stream client', self.peer
+        #print 'connected stream client', self.peer
         self.factory.clients[self.peer] = self
     def connectionLost(self, reason):
         if self.peer in self.factory.clients:
-            print 'disconnected stream client', self.peer
+            #print 'disconnected stream client', self.peer
             del self.factory.clients[self.peer]
     def onMessage(self, payload, isBinary):
-        print 'sending payload to %d connected clients' % (len(self.factory.clients)-1)
+        #print 'sending payload to %d connected clients' % (len(self.factory.clients)-1)
         for client in self.factory.clients.values():
             # Send to all clients excepting self
             if client.peer != self.peer:
@@ -572,7 +612,12 @@ class Database(Resource):
 
         self.putChild("_all_docs", self.all_docs_resource)
 
+        self._changesink = AsynchronousFileSink(os.path.join(self.dbpath, "_changes"))
+
         self._change_waiters = {} # request -> timeout_callback
+
+    def stop(self):
+        self._changesink.stop()
 
     def _save_to_disk(self):
         if not os.path.exists(self.dbpath):
@@ -729,8 +774,9 @@ class Database(Resource):
             self._changes[self._db_info["update_seq"]] = doc
 
             # Sync change to disk
-            with opena(os.path.join(self.dbpath, "_changes")) as fh:
-                fh.write("%s\n" % (json_dumps(make_change(doc, self._db_info["update_seq"]))))
+            self._changesink.put(json_dumps(make_change(doc, self._db_info["update_seq"])))
+            # with opena(os.path.join(self.dbpath, "_changes")) as fh:
+            #     fh.write("%s\n" % (json_dumps(make_change(doc, self._db_info["update_seq"]))))
 
         self.change_resource._change(doc)
 
@@ -799,6 +845,11 @@ class Seatbelt(Resource):
 
         self.all_dbs_resource = GetJSON(self._all_dbs)
         self.putChild("_all_dbs", self.all_dbs_resource)
+
+    def stop(self):
+        # Stop all databases
+        for db in self.dbs.values():
+            db.stop()
 
     def _change(self, change_type, db_name):
         self.db_updates_resource._change(change_type, db_name)
@@ -987,7 +1038,9 @@ def serve(dbdir, port=6984, interface='0.0.0.0', queue=None, defaultdb=None, def
 
     if queue is not None:
         queue.put(local_root_uri)
-        
+
+    reactor.addSystemEventTrigger('before', 'shutdown', seatbelt.stop)
+
     reactor.run()
 
 if __name__=='__main__':
