@@ -140,9 +140,10 @@ class AsynchronousFileSink(Thread):
     def _run_forever(self):
         while True:
             if self.quit_event.is_set():
+                self.fh.close()
                 return
             try:
-                line, isBinary = self.msg_queue.get(timeout=0.5)
+                line, isBinary = self.msg_queue.get(timeout=0.1)
             except Empty:
                 continue
             with self.msg_lock:
@@ -165,6 +166,7 @@ class AsynchronousFileSink(Thread):
 
     def stop(self):
         self.quit_event.set()
+        self.join()
 
 class GetJSON(Resource):
     def __init__(self, doc):
@@ -239,7 +241,7 @@ class DbChangesWsFactory(WebSocketServerFactory):
             #print "unregistered client", client.peer
             del self.clients[client.peer]
         else:
-            print "??? unregistering an unregistered client", client.peer
+            # print "??? unregistering an unregistered client", client.peer
 
     def _send(self, msg):
         for c in self.clients.values():
@@ -261,7 +263,6 @@ class DbChangesWsProtocol(WebSocketServerProtocol):
 
 class CorsWebSocketResource(WebSocketResource):
     def getChild(self, name, request):
-        print 'cwsr', name, request
         _cors(request)
         return WebSocketResource.getChild(self, name, request)
 
@@ -776,6 +777,7 @@ class Database(Resource):
                 os.unlink(os.path.join(docobj.docpath, attachname))
             # remove streams (XXX: archive?)
             for streamname in docobj.streams:
+                docobj.streams[streamname].stop()
                 os.unlink(os.path.join(docobj.docpath, streamname))
             if os.path.exists(docobj.docpath):
                 os.rmdir(docobj.docpath)
