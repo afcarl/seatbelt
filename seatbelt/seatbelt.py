@@ -126,7 +126,11 @@ class AsynchronousFileSink(Thread):
     """
     def __init__(self, filepath):
         self.filepath = filepath
-        self.fh = opena(self.filepath)
+        # XXX: will this handle all the unicode data correctly?
+        # I am using open() instead of codecs.open() because
+        # I also want it to work with binary data.
+        # TODO: make isBinary an initialization flag to AFS.
+        self.fh = open(self.filepath, 'a')
         self.msg_queue = Queue()
         self.msg_lock = Lock()
         self.quit_event = Event()
@@ -138,11 +142,15 @@ class AsynchronousFileSink(Thread):
             if self.quit_event.is_set():
                 return
             try:
-                line = self.msg_queue.get(timeout=0.5)
+                line, isBinary = self.msg_queue.get(timeout=0.5)
             except Empty:
                 continue
             with self.msg_lock:
-                self.fh.write("%s\n" % (line))
+                if isBinary:
+                    self.fh.write(line)
+                else:
+                    # Add a newline character if the message is not binary
+                    self.fh.write("%s\n" % (line))
 
     def read(self):
         with self.msg_lock:
@@ -151,9 +159,9 @@ class AsynchronousFileSink(Thread):
             self.fh = opena(self.filepath)
         return out
 
-    def put(self, msg):
+    def put(self, msg, isBinary=False):
         "thread-safe message append function"
-        self.msg_queue.put(msg)
+        self.msg_queue.put([msg, isBinary])
 
     def stop(self):
         self.quit_event.set()
@@ -253,8 +261,9 @@ class DbChangesWsProtocol(WebSocketServerProtocol):
 
 class CorsWebSocketResource(WebSocketResource):
     def getChild(self, name, request):
+        print 'cwsr', name, request
         _cors(request)
-        WebSocketResource.getChild(self, name, request)
+        return WebSocketResource.getChild(self, name, request)
 
 
 class DbChanges(Resource):
@@ -319,28 +328,45 @@ class Attachment(File):
 
     def getChild(self, name, request):
         _cors(request)
-        File.getChild(self, name, request)
+        return File.getChild(self, name, request)
 
 class Stream(Resource):
-    def __init__(self):
+    def __init__(self, filepath):
+        # Serve the file, with bonus features...
         Resource.__init__(self)
-        self.stream_factory = StreamFactory()
+        self.filepath = filepath
+        self.stream_factory = StreamFactory(filepath)
         self.stream_factory.protocol = StreamProtocol
+        self.stream_factory._stream_res = self
         self.stream_resource = CorsWebSocketResource(self.stream_factory)
         self.putChild("_ws", self.stream_resource)
 
+    def getChild(self, name, req):
+        if len(name) == 0:
+            return File(self.filepath)
+        return Resource.getChild(self, name, req)
+
+    def stop(self):
+        self.stream_factory.sink.stop()
+
 class StreamFactory(WebSocketServerFactory):
-    def __init__(self):
+    def __init__(self, sinkpath):
         WebSocketServerFactory.__init__(self, None)
+
         self.clients = {}       # peerstr -> client
+        self.sink = AsynchronousFileSink(sinkpath)
+
+    @property
+    def do_record(self):
+        return self._stream_res.do_record
 
 class StreamProtocol(WebSocketServerProtocol):
     def onOpen(self):
-        #print 'connected stream client', self.peer
+        # print 'connected stream client', self.peer
         self.factory.clients[self.peer] = self
     def connectionLost(self, reason):
         if self.peer in self.factory.clients:
-            #print 'disconnected stream client', self.peer
+            # print 'disconnected stream client', self.peer
             del self.factory.clients[self.peer]
     def onMessage(self, payload, isBinary):
         #print 'sending payload to %d connected clients' % (len(self.factory.clients)-1)
@@ -348,6 +374,11 @@ class StreamProtocol(WebSocketServerProtocol):
             # Send to all clients excepting self
             if client.peer != self.peer:
                 client.sendMessage(payload, isBinary=isBinary)
+
+        # print 'got message!'
+        if self.factory.do_record:
+            # print 'saving message!', payload
+            self.factory.sink.put(payload, isBinary)
 
 class Document(Resource):
     def __init__(self, db, docpath):
@@ -372,12 +403,19 @@ class Document(Resource):
     def _load_from_disk(self):
         if os.path.exists(self.docpath):
             for filename in os.listdir(self.docpath):
-                self._serve_attachment(filename, self._get_mime(filename))
+                if filename in self.doc.get("_attachments", {}):
+                    self._serve_attachment(filename, self._get_mime(filename))
 
     def _serve_stream(self, streamname):
         # websocket-based streaming
-        self.streams[streamname] = Stream()
-        self.putChild(streamname, self.streams[streamname])
+        if streamname not in self.streams:
+            # Make sure a directory for this document exists
+            if not os.path.isdir(self.docpath):
+                os.makedirs(self.docpath)
+            self.streams[streamname] = Stream(os.path.join(self.docpath, streamname))
+            self.putChild(streamname, self.streams[streamname])
+        # Set recording flag
+        self.streams[streamname].do_record = self.doc["_streams"][streamname].get("recording", False)
 
     def _serve_attachment(self, filename, mimetype="text/html"):
         self.attachments[filename] = PARTS_BIN["Attachment"](self, os.path.join(self.docpath, filename),
@@ -406,6 +444,10 @@ class Document(Resource):
         os.symlink(os.path.abspath(path), a_dest)
         self._create_attachment(filename)
 
+    def stop(self):
+        for s in self.streams.values():
+            s.stop()
+
     def put_attachment(self, fh, filename=None):
         attachname = filename or fh.name
 
@@ -418,6 +460,7 @@ class Document(Resource):
 
         # Write file to temporary location on disk and compute size/hash
         # TODO: Make hash computation optional
+        # TODO ...or at least compute in a thread
         with tempfile.NamedTemporaryFile(delete=False) as fp:
             for chunk in fh:
                 sha1.update(chunk)
@@ -618,6 +661,8 @@ class Database(Resource):
 
     def stop(self):
         self._changesink.stop()
+        for doc in self.docs.values():
+            doc.stop()
 
     def _save_to_disk(self):
         if not os.path.exists(self.dbpath):
@@ -747,8 +792,7 @@ class Database(Resource):
 
         # Initiate new streams
         for name in doc.get("_streams", {}):
-            if name not in self.docs[docid].streams:
-                self.docs[docid]._serve_stream(name)
+            self.docs[docid]._serve_stream(name)
 
         # Send document to anyone watching DB changes
         self._change(doc)
