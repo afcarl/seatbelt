@@ -341,9 +341,15 @@ class Stream(Resource):
         self.stream_resource = CorsWebSocketResource(self.stream_factory)
         self.putChild("_ws", self.stream_resource)
 
+    def render_GET(self, req):
+        _cors(req)
+        # XXX: content type?
+        return self.stream_factory.sink.read()
+
     def getChild(self, name, req):
-        if len(name) == 0:
-            return File(self.filepath)
+        if name == '':
+            return self
+            #return File(self.filepath)
         return Resource.getChild(self, name, req)
 
     def stop(self):
