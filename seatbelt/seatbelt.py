@@ -774,6 +774,9 @@ class Database(Resource):
             # remove attachments
             for attachname in docobj.attachments:
                 os.unlink(os.path.join(docobj.docpath, attachname))
+            # remove streams (XXX: archive?)
+            for streamname in docobj.streams:
+                os.unlink(os.path.join(docobj.docpath, streamname))
             if os.path.exists(docobj.docpath):
                 os.rmdir(docobj.docpath)
 
