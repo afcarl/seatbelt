@@ -241,7 +241,7 @@ class DbChangesWsFactory(WebSocketServerFactory):
             #print "unregistered client", client.peer
             del self.clients[client.peer]
         else:
-            # print "??? unregistering an unregistered client", client.peer
+            print "??? unregistering an unregistered client", client.peer
 
     def _send(self, msg):
         for c in self.clients.values():
@@ -568,7 +568,7 @@ class Document(Resource):
     def getChild(self, name, request):
         _cors(request)
 
-        if request.method == "PUT" and len(name) > 0:
+        if request.method in ["PUT", "OPTIONS"] and len(name) > 0:
             return self
         return Resource.getChild(self, name, request)
 
