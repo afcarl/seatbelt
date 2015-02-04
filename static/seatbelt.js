@@ -14,6 +14,8 @@ var S = {};
 
 (function($) {
 
+    // Triggerable
+
     $.Triggerable = function() {
     };
     $.Triggerable.prototype._get_cbs = function(evtname) {
@@ -73,6 +75,8 @@ var S = {};
         this.__connections = undefined;
     }
 
+    // Document
+
     $.Document = function(ego, doc) {
         $.Triggerable.call(this);
         if(!ego) {
@@ -91,8 +95,6 @@ var S = {};
             // Generate an ID
             this._make_id();
         }
-
-        this.__ego.register(this);
     };
     $.Document.prototype = new $.Triggerable;
     $.Document.prototype.get_doc = function() {
@@ -108,48 +110,27 @@ var S = {};
         return doc;
     };
     $.Document.prototype.set_doc = function(doc) {
-        var changedKeys = [];
         for(var k in doc) {  // added and modified properties
             if (this[k] !== doc[k]) {
                 this[k] = doc[k];
-                changedKeys.push(k);
             }
         }
         for (var k in this) {  // deleted properties
             if(doc[k] === undefined && this.hasOwnProperty(k) && k.slice(0,2) !== '__' && k.substr(0,1) !== '_') {
                 delete this[k];
-                changedKeys.push(k);
             }
         }
-        this._trigger_changes_for_keys(changedKeys);
     }
     $.Document.prototype.update_doc = function(doc) {
-        var changedKeys = [];
         for(var k in doc) {
             if (this[k] !== doc[k]) {
                 this[k] = doc[k];
-                changedKeys.push(k);
             }
         }
-        this._trigger_changes_for_keys(changedKeys);
     };
-    $.Document.prototype._trigger_changes_for_keys = function(keys) {
-        if (keys.length == 0) { return; }
-        keys.forEach(function (k) { 
-            this.trigger(k + "-change", this);
-        }, this);
-        this.trigger("change", this);
-        if(this.__ego.get(this._id)) {
-            this.__ego.trigger("change", this);
-        }
-    }
     $.Document.prototype.set = function(key, value) {
-        if(this[key] !== value) {
-            this[key] = value;
-            this._trigger_changes_for_keys([key]);
-            return true;
-        };
-        return false;
+        // XXX: deprecated - just set the key
+        this[key] = value;
     };
     $.Document.prototype.set_foreign = function(key, value) {
         return this.set(key, value._id);
@@ -163,6 +144,16 @@ var S = {};
     };
     $.Document.prototype.save = function(success, error) {
         var that = this;
+
+        // trigger a change on save
+        this.trigger("change", this);
+        if(this.__ego.get(this._id)) {
+            this.__ego.trigger("change", this);
+        }
+        else {
+            this.__ego.register(this);
+        }
+
         // Wrap the success function to update _rev property
         this.__ego.save(this.get_doc(), function(res) {
             that._rev = res.rev;
@@ -234,6 +225,8 @@ var S = {};
         return $div;
     }
 
+    // Database
+
     $.Database = function(db) {
         $.Triggerable.call(this);
 
@@ -297,17 +290,18 @@ var S = {};
 
         var that = this;
         this.trigger("delete", this.get(id));
-        if(rev === undefined) {
-            // Not a real, couch-backed object object
-            delete this._obj[id];
-            return;
+
+        var doc = this.get(id);
+        if(doc) {
+            doc["_deleted"] = true;
+            this._ondocchange(doc);
         }
 
         if(this.socket) {
             // Send a delete message over websockets
             var doc = {"_id": id, "_rev": rev, "_deleted": true};
             this.socket.send(JSON.stringify(doc));
-            // TODO: success/error callbacks
+            // XXX: success/error callbacks?
         }
         else {
             var xhr = new XMLHttpRequest();
@@ -331,6 +325,7 @@ var S = {};
     };
     $.Database.prototype.register = function(obj) {
         this._obj[obj._id] = obj;
+        // trigger the `create' event on save
         this.trigger("create", obj);
     };
     $.Database.prototype.load = function(cb) {
@@ -421,9 +416,7 @@ var S = {};
             // Derive web socket URL
             // TODO: crypto
             var url = "ws://" + window.location.host;
-            console.log(this.db.slice(0,7));
             if(this.db.slice(0,7) == "http://") {
-                console.log("remote websocket requested");
                 url = "ws://" + this.db.split("http://")[1];
             }
             // XXX: What are these cases?
@@ -442,16 +435,14 @@ var S = {};
             url += "_changes/_ws";
 
             this.socket = new WebSocket(url);
+            this.socket.onopen = function() {
+                this.onconnect();
+            }.bind(this);
             this.socket.onmessage = function(e) {
                 if(typeof e.data == "string") {
                     var res = JSON.parse(e.data);
                     // Hmmm... maybe I should just make my own protocol.
                     var doc = res.results[0].doc;
-
-                    // // reload page if ddoc changes
-                    // if(doc._id.indexOf("_design/") == 0) {
-                    //     window.location.reload();
-                    // }
 
                     this._ondocchange(doc);
 
@@ -459,6 +450,10 @@ var S = {};
             }.bind(this);
         }.bind(this));
     }
+    $.Database.prototype.onconnect = function() {
+        // called when the websocket connection has been established
+        this.trigger("connect");
+    };
     $.Database.prototype._ondocchange = function(doc) {
         if(doc._id in this._obj) {
             // Document modified
@@ -513,6 +508,8 @@ var S = {};
         xhr.send();
     };
 
+    // CollectionWatcher
+
     $.CollectionWatcher = function(collection) {
         $.Triggerable.call(this);
         if(!collection) {
@@ -528,6 +525,8 @@ var S = {};
     $.CollectionWatcher.prototype._create = function() { throw("not implemented");};
     $.CollectionWatcher.prototype._change = function() { throw("not implemented");};
     $.CollectionWatcher.prototype._delete = function() { throw("not implemented");};
+
+    // Subcollection
 
     $.Subcollection = function(collection, filterfn, initial) {
         $.CollectionWatcher.call(this, collection);
@@ -731,6 +730,8 @@ var S = {};
         return this._mapping[key] || [];
     };
 
+    // CollectionView
+
     $.CollectionView = function(collection, renderfn, child_tagname, sortby, $parent_el) {
         $.CollectionWatcher.call(this, collection);
         if(!collection) {
@@ -807,6 +808,8 @@ var S = {};
             this.$el.insertBefore(this.get(this._id(obj)), this.get(this._id(next)));
         }
     }
+
+    // functions
 
     var _sort_array = function (array, fn) {
         if (!fn) { return array; }
