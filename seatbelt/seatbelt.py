@@ -341,6 +341,7 @@ class Stream(Resource):
         self.stream_factory._stream_res = self
         self.stream_resource = CorsWebSocketResource(self.stream_factory)
         self.putChild("_ws", self.stream_resource)
+        self.putChild("meta", StreamMeta(self))
 
     def render_GET(self, req):
         _cors(req)
@@ -356,6 +357,17 @@ class Stream(Resource):
     def stop(self):
         self.stream_factory.sink.stop()
 
+class StreamMeta(Resource):
+    def __init__(self, stream):
+        self.stream = stream
+        Resource.__init__(self)
+    def render_GET(self, req):
+        req.headers["Content-Type"] = "application/json"
+        return json_dumpsu({
+            "path": self.stream.filepath,
+            "clients": self.stream.stream_factory.clients.keys()
+            })
+
 class StreamFactory(WebSocketServerFactory):
     def __init__(self, sinkpath):
         WebSocketServerFactory.__init__(self, None)
@@ -369,22 +381,23 @@ class StreamFactory(WebSocketServerFactory):
 
 class StreamProtocol(WebSocketServerProtocol):
     def onOpen(self):
-        # print 'connected stream client', self.peer
+        print 'connected stream client', self.peer, self.factory.clients.keys()
         self.factory.clients[self.peer] = self
     def connectionLost(self, reason):
         if self.peer in self.factory.clients:
-            # print 'disconnected stream client', self.peer
+            print 'disconnected stream client', self.peer
             del self.factory.clients[self.peer]
     def onMessage(self, payload, isBinary):
-        #print 'sending payload to %d connected clients' % (len(self.factory.clients)-1)
+        print 'sending payload to %d connected clients' % (len(self.factory.clients)-1)
         for client in self.factory.clients.values():
             # Send to all clients excepting self
             if client.peer != self.peer:
+                print 'sending message from', self.peer, 'to', client.peer, '; len: ', len(payload)
                 client.sendMessage(payload, isBinary=isBinary)
 
         # print 'got message!'
         if self.factory.do_record:
-            # print 'saving message!', payload
+            print 'saving message!', payload
             self.factory.sink.put(payload, isBinary)
 
 class Document(Resource):
