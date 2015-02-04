@@ -107,21 +107,46 @@ var S = {};
 	}
 	return doc;
     };
+    $.Document.prototype.set_doc = function(doc) {
+        var changedKeys = [];
+        for(var k in doc) {  // added and modified properties
+            if (this[k] !== doc[k]) {
+                this[k] = doc[k];
+                changedKeys.push(k);
+            }
+        }
+        for (var k in this) {  // deleted properties
+            if(doc[k] === undefined && this.hasOwnProperty(k) && k.slice(0,2) !== '__' && k.substr(0,1) !== '_') {
+                delete this[k];
+                changedKeys.push(k);
+            }
+        }
+        this._trigger_changes_for_keys(changedKeys);
+    }
     $.Document.prototype.update_doc = function(doc) {
-	for(var k in doc) {
-            this.set(k, doc[k]);
-	};
+        var changedKeys = [];
+        for(var k in doc) {
+            if (this[k] !== doc[k]) {
+                this[k] = doc[k];
+                changedKeys.push(k);
+            }
+        }
+        this._trigger_changes_for_keys(changedKeys);
     };
+    $.Document.prototype._trigger_changes_for_keys = function(keys) {
+        if (keys.length == 0) { return; }
+        keys.forEach(function (k) { 
+            this.trigger(k + "-change", this);
+        }, this);
+        this.trigger("change", this);
+        if(this.__ego.get(this._id)) {
+            this.__ego.trigger("change", this);
+        }
+    }
     $.Document.prototype.set = function(key, value) {
 	if(this[key] !== value) {
             this[key] = value;
-            this.trigger(key + "-change");
-            this.trigger("change");
-
-            // fire change event in ego as well, if registered
-            if(this.__ego.get(this._id)) {
-		this.__ego.trigger("change", this);
-            }
+            this._trigger_changes_for_keys([key]);
             return true;
 	};
 	return false;
@@ -234,7 +259,7 @@ var S = {};
 	for(var k in this._obj) {
             out.push(this._obj[k]);
 	}
-	out.sort(sortfn);
+        _sort_array(out,sortfn);
 	return out;
     };
     $.Database.prototype.save = function(doc, success, error) {
@@ -575,7 +600,7 @@ var S = {};
 		out.push(mapping[k]);
             }
             if(sortfn) {
-		out.sort(sortfn);
+		_sort_array(out, sortfn);
 		this._sorted = out;
             }
             else {
@@ -698,7 +723,7 @@ var S = {};
             out.push(k);
 	}
 	if(sortfn) {
-            out.sort(sortfn);
+            _sort_array(out, sortfn);
 	}
 	return out;
     };
@@ -783,5 +808,17 @@ var S = {};
 	}
     }
 
+    var _sort_array = function (array, fn) {
+        if (!fn) { return array; }
+        if (typeof fn == "string") {
+            var k = fn;
+            fn = function (a,b) {
+                var ak = a[k] || "0", bk = b[k] || "0";
+                return (ak > bk) ? 1 : (ak < bk) ? -1 : 0;
+            };
+        }
+        array.sort(fn);
+        return array;        
+    };
 
 })(S);
