@@ -243,9 +243,10 @@ class DbChangesWsFactory(WebSocketServerFactory):
         else:
             print "??? unregistering an unregistered client", client.peer
 
-    def _send(self, msg):
+    def _send(self, msg, initiator=None):
         for c in self.clients.values():
-            c.sendMessage(msg)
+            if c != initiator:
+                c.sendMessage(msg)
 
 class DbChangesWsProtocol(WebSocketServerProtocol):
     def onOpen(self):
@@ -260,9 +261,9 @@ class DbChangesWsProtocol(WebSocketServerProtocol):
         doc = json.loads(payload)
 
         if doc.get("_deleted", False):
-            self.factory.db.delete_doc(doc["_id"])
+            self.factory.db.delete_doc(doc["_id"], initiator=self)
         else:
-            self.factory.db._try_update(doc)
+            self.factory.db._try_update(doc, initiator=self)
 
 class CorsWebSocketResource(WebSocketResource):
     def getChild(self, name, request):
@@ -308,14 +309,14 @@ class DbChanges(Resource):
     def _change_nevermind(self, _err, request):
         self._change_waiters[request].cancel()
         del self._change_waiters[request]
-    def _change(self, doc):
+    def _change(self, doc, initiator=None):
         msg = json_dumpsu({
             "results": [make_change(doc, self.db._db_info["update_seq"])],
             "last_seq": self.db._db_info["update_seq"]+1
         })
 
         # Notify all of the _change_waiters
-        self._change_sockets._send(msg)
+        self._change_sockets._send(msg, initiator=initiator)
         for req,timeout in self._change_waiters.items():
             req.write(msg)
             req.finish()
@@ -775,7 +776,7 @@ class Database(Resource):
         if upd.get("ok"):
             return self.docs[doc["_id"]]
 
-    def delete_doc(self, docid, revid=None):
+    def delete_doc(self, docid, revid=None,initiator=None):
         doc = self.getdoc(docid)
         docobj = self.docs[docid]
 
@@ -784,7 +785,7 @@ class Database(Resource):
             del self.docs[docid]
             #self.db._save_to_disk()
             self._save_db_info()
-            self._change({"_id": docid, "_deleted": True})
+            self._change({"_id": docid, "_deleted": True}, initiator=initiator)
 
             self.all_docs_resource.wipe_cache()
 
@@ -801,7 +802,7 @@ class Database(Resource):
             return True
         return False
 
-    def _try_update(self, doc):
+    def _try_update(self, doc, initiator=None):
         docid = doc["_id"]
         if not valid_id(docid):
             return {"error": "invalid id"}
@@ -822,7 +823,7 @@ class Database(Resource):
             self.docs[docid]._serve_stream(name)
 
         # Send document to anyone watching DB changes
-        self._change(doc)
+        self._change(doc, initiator=initiator)
 
         # update _db_info
         if not doc.get("_volatile"):
@@ -836,7 +837,7 @@ class Database(Resource):
         request.headers["Content-Type"] = "application/json"
         return json_dumpsu(self._db_info)
 
-    def _change(self, doc):
+    def _change(self, doc, initiator=None):
         # Propagate to carousel
         self.seatbelt._change("updated", self.dbname)
 
@@ -849,7 +850,7 @@ class Database(Resource):
             # with opena(os.path.join(self.dbpath, "_changes")) as fh:
             #     fh.write("%s\n" % (json_dumps(make_change(doc, self._db_info["update_seq"]))))
 
-        self.change_resource._change(doc)
+        self.change_resource._change(doc, initiator=initiator)
 
         if not doc.get("_volatile"):
             self._db_info["update_seq"] += 1
