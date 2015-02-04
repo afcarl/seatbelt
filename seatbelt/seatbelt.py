@@ -259,7 +259,10 @@ class DbChangesWsProtocol(WebSocketServerProtocol):
         # Interpret incoming comands as database updates
         doc = json.loads(payload)
 
-        self.factory.db._try_update(doc)
+        if doc.get("_deleted", False):
+            self.factory.db.delete_doc(doc["_id"])
+        else:
+            self.factory.db._try_update(doc)
 
 class CorsWebSocketResource(WebSocketResource):
     def getChild(self, name, request):

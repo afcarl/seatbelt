@@ -277,23 +277,32 @@ var S = {};
             delete this._obj[id];
             return;
 	}
-	var xhr = new XMLHttpRequest();
-	xhr.open("DELETE", this.db + id + "?rev=" + rev, true);
-	xhr.onload = function() {
-            var res = JSON.parse(this.responseText);
-            if(res.ok) {
-		that.checkpoint(id, null, false);
 
-		if(success) {
-                    success(res);
-		}
-		delete that._obj[id];
-            }
-            else if(error) {
-		error(res);
-            }
-	};
-	xhr.send();
+        if(this.socket) {
+            // Send a delete message over websockets
+            var doc = {"_id": id, "_rev": rev, "_deleted": true};
+            this.socket.send(JSON.stringify(doc));
+            // TODO: success/error callbacks
+        }
+        else {
+	    var xhr = new XMLHttpRequest();
+	    xhr.open("DELETE", this.db + id + "?rev=" + rev, true);
+	    xhr.onload = function() {
+                var res = JSON.parse(this.responseText);
+                if(res.ok) {
+		    that.checkpoint(id, null, false);
+
+		    if(success) {
+                        success(res);
+		    }
+		    delete that._obj[id];
+                }
+                else if(error) {
+		    error(res);
+                }
+	    };
+	    xhr.send();
+        }
     };
     $.Database.prototype.register = function(obj) {
 	this._obj[obj._id] = obj;
