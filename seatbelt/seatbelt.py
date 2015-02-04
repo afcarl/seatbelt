@@ -391,16 +391,16 @@ class StreamProtocol(WebSocketServerProtocol):
             print 'disconnected stream client', self.peer
             del self.factory.clients[self.peer]
     def onMessage(self, payload, isBinary):
-        print 'sending payload to %d connected clients' % (len(self.factory.clients)-1)
+        # print 'sending payload to %d connected clients' % (len(self.factory.clients)-1)
         for client in self.factory.clients.values():
             # Send to all clients excepting self
             if client.peer != self.peer:
-                print 'sending message from', self.peer, 'to', client.peer, '; len: ', len(payload)
+                # print 'sending message from', self.peer, 'to', client.peer, '; len: ', len(payload)
                 client.sendMessage(payload, isBinary=isBinary)
 
         # print 'got message!'
         if self.factory.do_record:
-            print 'saving message!', payload
+            #print 'saving message!', payload
             self.factory.sink.put(payload, isBinary)
 
 class Document(Resource):
