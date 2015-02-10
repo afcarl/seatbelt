@@ -233,8 +233,9 @@ class DbChangesWsFactory(WebSocketServerFactory):
         self.clients = {}       # peerstr -> client
 
     def register(self, client):
-        #print "registered client", client.peer
         self.clients[client.peer] = client
+        # Send _all_docs to client
+        client.sendMessage(json.dumps(self.db._all_docs))
 
     def unregister(self, client):
         if client.peer in self.clients:

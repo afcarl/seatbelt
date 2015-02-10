@@ -145,14 +145,7 @@ var S = {};
     $.Document.prototype.save = function(success, error) {
         var that = this;
 
-        // trigger a change on save
-        this.trigger("change", this);
-        if(this.__ego.get(this._id)) {
-            this.__ego.trigger("change", this);
-        }
-        else {
-            this.__ego.register(this);
-        }
+        this._change();
 
         // Wrap the success function to update _rev property
         this.__ego.save(this.get_doc(), function(res) {
@@ -162,6 +155,17 @@ var S = {};
             }
         }, error);
     };
+    $.Document.prototype._change = function() {
+        // trigger a change on save
+        if(this.__ego.get(this._id)) {
+            this.trigger("change", this);
+            this.__ego.trigger("change", this);
+        }
+        else {
+            this.__ego.register(this);
+            this.trigger("change", this);
+        }
+    }
     $.Document.prototype.deleteme = function(success, error) {
         this.__ego.remove(this._id, this._rev, success, error);
         this.trigger("delete");
@@ -409,46 +413,50 @@ var S = {};
         }.bind(this);
         xhr.send();
     }
+    $.Database.prototype._handle_ws_all_docs = function(e) {
+        var res = JSON.parse(e.data);
+        // Hmmm... maybe I should just make my own protocol.
+        var all_docs = res;
+        for(var key in all_docs) {
+            this.oncreate(all_docs[key]);
+        }
+        this.onload();
+        this.onconnect();       // compatibility...
+
+        this.socket.onmessage = this._handle_ws_change.bind(this);
+    }
+    $.Database.prototype._handle_ws_change = function(e) {
+        if(typeof e.data == "string") {
+            var res = JSON.parse(e.data);
+            // Hmmm... maybe I should just make my own protocol.
+            var doc = res.results[0].doc;
+
+            this._ondocchange(doc);
+        }
+    }
     $.Database.prototype.connect = function() {
-        // Load documents and establish a websocket connection for changes.
-        this.load(function() {
-
-            // Derive web socket URL
-            // TODO: crypto
-            var url = "ws://" + window.location.host;
-            if(this.db.slice(0,7) == "http://") {
-                url = "ws://" + this.db.split("http://")[1];
+        // Establish a websocket connection
+        var url = "ws://" + window.location.host;
+        if(this.db.slice(0,7) == "http://") {
+            url = "ws://" + this.db.split("http://")[1];
+        }
+        // XXX: What are these cases?
+        else if(this.db[0] == "/") {
+            url += this.db;
+        }
+        else {
+            // Strip the end of the url
+            var path = window.location.pathname;
+            if(path[path.length-1] !=="/") {
+                var pathparts = path.split("/");
+                path = pathparts.slice(0, pathparts.length-1).join("/") + "/";
             }
-            // XXX: What are these cases?
-            else if(this.db[0] == "/") {
-                url += this.db;
-            }
-            else {
-                // Strip the end of the url
-                var path = window.location.pathname;
-                if(path[path.length-1] !=="/") {
-                    var pathparts = path.split("/");
-                    path = pathparts.slice(0, pathparts.length-1).join("/") + "/";
-                }
-                url += path + this.db;
-            }
-            url += "_changes/_ws";
+            url += path + this.db;
+        }
+        url += "_changes/_ws";
 
-            this.socket = new WebSocket(url);
-            this.socket.onopen = function() {
-                this.onconnect();
-            }.bind(this);
-            this.socket.onmessage = function(e) {
-                if(typeof e.data == "string") {
-                    var res = JSON.parse(e.data);
-                    // Hmmm... maybe I should just make my own protocol.
-                    var doc = res.results[0].doc;
-
-                    this._ondocchange(doc);
-
-                }
-            }.bind(this);
-        }.bind(this));
+        this.socket = new WebSocket(url);
+        this.socket.onmessage = this._handle_ws_all_docs.bind(this)
     }
     $.Database.prototype.onconnect = function() {
         // called when the websocket connection has been established
@@ -486,12 +494,14 @@ var S = {};
     $.Database.prototype.oncreate = function(doc) {
         // side-effect of creation is SUPER_EGO.register
         var foo = new $.Document(this, doc);
+        this.register(foo);
 
         this._worldstate[doc._id] = doc;
     };
     $.Database.prototype.onchange = function(doc) {
         if(this.get(doc._id)) {
             this._obj[doc._id].update_doc(doc);
+            this.get(doc._id)._change();
             // this.trigger("change", this.get(doc._id));
         }
     };
