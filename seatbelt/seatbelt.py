@@ -473,11 +473,17 @@ class Document(Resource):
         for s in self.streams.values():
             s.stop()
 
-    def put_attachment(self, fh, filename=None):
+    def put_attachment(self, req, filename=None):
+        fh = req.content
+
         attachname = filename or fh.name
 
         if not os.path.exists(self.docpath):
             os.makedirs(self.docpath)
+
+        reactor.callInThread(self._async_put_attachment, fh, req, attachname)
+
+    def _async_put_attachment(self, fh, req, attachname):
 
         # Write to a temporary location, while computing the sha1
         sha1 = hashlib.sha1()
@@ -485,7 +491,6 @@ class Document(Resource):
 
         # Write file to temporary location on disk and compute size/hash
         # TODO: Make hash computation optional
-        # TODO ...or at least compute in a thread
         with tempfile.NamedTemporaryFile(delete=False) as fp:
             for chunk in fh:
                 sha1.update(chunk)
@@ -519,9 +524,9 @@ class Document(Resource):
             # simply move the payload
             os.rename(apath, a_dest)
 
-        return self._create_attachment(attachname, filesize=filesize, hashstr=hashstr)
+        reactor.callFromThread(self._create_attachment, attachname, filesize=filesize, hashstr=hashstr, req=req)
 
-    def _create_attachment(self, attachname, filesize=None, hashstr=None):
+    def _create_attachment(self, attachname, filesize=None, hashstr=None, req=None):
         content_type = self._get_mime(attachname)
         if hashstr is None:
             hashstr = ""
@@ -534,7 +539,12 @@ class Document(Resource):
             "length": filesize,
             "content_type": content_type}
         self._serve_attachment(attachname, mimetype=content_type)
-        return self.db._try_update(self.doc)
+        update = self.db._try_update(self.doc)
+        if req is not None:
+            req.write(json_dumpsu(update))
+            req.finish()
+        else:
+            return update
 
     def render_PUT(self, request):
         _cors(request)
@@ -552,8 +562,9 @@ class Document(Resource):
             # if revid != self.doc["_rev"]:
             #     return json_dumpsu({"error": "revid mismatch"})
 
-            res = self.put_attachment(request.content, filename=rempath)
-            return json_dumpsu(res)
+            self.put_attachment(request, filename=rempath)
+            return NOT_DONE_YET
+
         else:
             # trying to update document -- handle in parent
             return self.db.render_PUT(request)
