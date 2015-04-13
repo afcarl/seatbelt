@@ -1083,7 +1083,11 @@ def trackddocs(db, srcdir, db_uri):
     
     return ddoc, multiprocessing.Process(target=_track)
 
-def serve(dbdir, port=6984, interface='0.0.0.0', queue=None, defaultdb=None, defaultddocs=None, ddoclink=False, otherddocs=[], otherdbs=[]):
+def _add_endpoints(resource, endpoints):
+    for k,v in endpoints.items():
+        resource.putChild(k, v)
+
+def serve(dbdir, port=6984, interface='0.0.0.0', queue=None, defaultdb=None, defaultddocs=None, ddoclink=False, otherddocs=[], otherdbs=[], endpoints={}):
     seatbelt = PARTS_BIN["Seatbelt"](dbdir)
     site = Site(seatbelt)
 
@@ -1108,7 +1112,9 @@ def serve(dbdir, port=6984, interface='0.0.0.0', queue=None, defaultdb=None, def
 
             site = Site(ddoc.rewrite_resource)
             local_root_uri += "/root/"
-
+            _add_endpoints(ddoc.rewrite_resource, endpoints)
+        else:
+            _add_endpoints(seatbelt, endpoints)    
 
         # Create other databases, as requested
         # XXX: Sometime soon, the URL scheme should be revised & firmly diverged from CouchDB.
