@@ -742,7 +742,7 @@ var S = {};
 
     // CollectionView
 
-    $.CollectionView = function(collection, renderfn, child_tagname, sortby, $parent_el) {
+    $.CollectionView = function(collection, renderfn, child_tagname, sortby, $parent_el, noparent) {
         $.CollectionWatcher.call(this, collection);
         if(!collection) {
             return;
@@ -751,7 +751,12 @@ var S = {};
 
         this.sortby = sortby;
 
-        this.$el = $parent_el || document.createElement("div");
+        if(!noparent) {
+            this.$el = $parent_el || document.createElement("div");
+        }
+        else {
+            this.noparent = true;
+        }
         this.child_tagname = child_tagname || "div";
 
         this._itemdivs = {};    // id -> $div
@@ -782,7 +787,9 @@ var S = {};
     $.CollectionView.prototype._create = function(obj, nosort) {
         var $div = this._itemdivs[this._id(obj)] || document.createElement(this.child_tagname);
         this._itemdivs[this._id(obj)] = $div;
-        this.$el.appendChild($div);
+        if(!this.noparent) {
+            this.$el.appendChild($div);
+        }
         this.render(obj, $div);
         if(!nosort) {
             this._position(obj);
@@ -794,11 +801,19 @@ var S = {};
     };
     $.CollectionView.prototype._delete = function(obj) {
         this._itemdivs[this._id(obj)].innerHTML = "";
-        this.$el.removeChild(this._itemdivs[this._id(obj)]);
+        if(this.noparent) {
+            var $div = this._itemdivs[this._id(obj)];
+            if($div.parentElement) {
+                $div.parentElement.removeChild($div);
+            }
+        }
+        else {
+            this.$el.removeChild(this._itemdivs[this._id(obj)]);
+        }
         delete this._itemdivs[this._id(obj)];
     };
     $.CollectionView.prototype.sort = function() {
-        if(this.sortby) {
+        if(this.sortby && !this.noparent) {
             var items = this.collection.items(this.sortby);
             items.forEach(function(obj) {
                 this.$el.appendChild(this._itemdivs[this._id(obj)]);
@@ -806,6 +821,10 @@ var S = {};
         };
     };
     $.CollectionView.prototype._position = function(obj) {
+        if(this.noparent) {
+            return
+        }
+        
         // Position one item correctly (without re-appending everything)
         var items = this.collection.items(this.sortby);
         var idx = items.indexOf(obj);
