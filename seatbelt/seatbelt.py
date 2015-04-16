@@ -130,7 +130,7 @@ class AsynchronousFileSink(Thread):
         # I am using open() instead of codecs.open() because
         # I also want it to work with binary data.
         # TODO: make isBinary an initialization flag to AFS.
-        self.fh = open(self.filepath, 'a')
+        self.fh = open(self.filepath, 'a+', 1) # line-buffered (?)
         self.msg_queue = Queue()
         self.msg_lock = Lock()
         self.quit_event = Event()
