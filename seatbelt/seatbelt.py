@@ -44,6 +44,8 @@ import tempfile
 import time
 import urllib
 import uuid
+from cStringIO import StringIO
+
 
 from threading import Thread, Lock, Event
 from Queue import Queue, Empty
@@ -231,6 +233,7 @@ class DbChangesWsFactory(WebSocketServerFactory):
         self.db = db
         WebSocketServerFactory.__init__(self, url)
         self.clients = {}       # peerstr -> client
+        self.binmeta = {}       # peerstr -> upcoming attachment info
 
     def register(self, client):
         self.clients[client.peer] = client
@@ -258,14 +261,26 @@ class DbChangesWsProtocol(WebSocketServerProtocol):
         self.factory.unregister(self)
 
     def onMessage(self, payload, isBinary):
-        # Interpret incoming comands as database updates
-        doc = json.loads(payload)
-
-        if doc.get("_deleted", False):
-            self.factory.db.delete_doc(doc["_id"], initiator=self)
+        if not isBinary:
+            doc = json.loads(payload)
+            # If type is "_attach", treat as attachment metadata
+            if doc.get("type") == "_attach":
+                self.factory.clients[self.peer] = doc
+            else:
+                # Interpret incoming comands as database updates
+                if doc.get("_deleted", False):
+                    self.factory.db.delete_doc(doc["_id"], initiator=self)
+                else:
+                    self.factory.db._try_update(doc, initiator=self)
         else:
-            self.factory.db._try_update(doc, initiator=self)
+            metadoc = self.factory.clients[self.peer]
+            del self.factory.clients[self.peer]
+            docid = metadoc["id"]
+            attachname = metadoc["name"]
+            dbdoc = self.factory.db.docs.get(docid)
 
+            reactor.callInThread(dbdoc._async_put_attachment, StringIO(payload), None, attachname)
+            
 class CorsWebSocketResource(WebSocketResource):
     def getChild(self, name, request):
         _cors(request)
@@ -478,9 +493,6 @@ class Document(Resource):
 
         attachname = filename or fh.name
 
-        if not os.path.exists(self.docpath):
-            os.makedirs(self.docpath)
-
         reactor.callInThread(self._async_put_attachment, fh, req, attachname)
 
     def _async_put_attachment(self, fh, req, attachname):
@@ -513,6 +525,9 @@ class Document(Resource):
         if os.path.exists(a_dest):
             os.chmod(a_dest, 0777) # ...may be needed to remove "immutable" file
             os.remove(a_dest)
+
+        if not os.path.exists(self.docpath):
+            os.makedirs(self.docpath)
 
         # Create symlink to payload
         if hasattr(os, "symlink"):
