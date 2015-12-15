@@ -77,12 +77,12 @@ var S = {};
 
     // Document
 
-    $.Document = function(ego, doc) {
+    $.Document = function(db, doc) {
         $.Triggerable.call(this);
-        if(!ego) {
+        if(!db) {
             return;
         }
-        this.__ego = ego;
+        this.__db = db;
 
         // When a doc is instantiated, we need all of the fields available
         // at once.
@@ -136,11 +136,11 @@ var S = {};
         return this.set(key, value._id);
     };
     $.Document.prototype.get_foreign = function(key) {
-        return this.__ego.get(this[key]);
+        return this.__db.get(this[key]);
     };
     $.Document.prototype.get_all_foreign = function(key) {
         var that = this;
-        return this[key].map(function(x) { return that.__ego.get(x); });
+        return this[key].map(function(x) { return that.__db.get(x); });
     };
     $.Document.prototype.save = function(success, error) {
         var that = this;
@@ -148,7 +148,7 @@ var S = {};
         this._change();
 
         // Wrap the success function to update _rev property
-        this.__ego.save(this.get_doc(), function(res) {
+        this.__db.save(this.get_doc(), function(res) {
             that._rev = res.rev;
             if(success) {
                 success();
@@ -157,17 +157,17 @@ var S = {};
     };
     $.Document.prototype._change = function() {
         // trigger a change on save
-        if(this.__ego.get(this._id)) {
+        if(this.__db.get(this._id)) {
             this.trigger("change", this);
-            this.__ego.trigger("change", this);
+            this.__db.trigger("change", this);
         }
         else {
-            this.__ego.register(this);
+            this.__db.register(this);
             this.trigger("change", this);
         }
     }
     $.Document.prototype.deleteme = function(success, error) {
-        this.__ego.remove(this._id, this._rev, success, error);
+        this.__db.remove(this._id, this._rev, success, error);
         this.trigger("delete");
     };
     $.Document.prototype.set_attachment = function(name, payload, content_type) {
@@ -181,7 +181,7 @@ var S = {};
     };
     $.Document.prototype.put_file_attachment = function(name, file, cb, progress_cb) {
         var xhr = new XMLHttpRequest();
-        xhr.open("PUT", this.__ego.db + this._id + "/" + name + "?rev=" + this._rev, true);
+        xhr.open("PUT", this.__db.db + this._id + "/" + name + "?rev=" + this._rev, true);
         xhr.setRequestHeader("Content-Type", file.type);
         xhr.upload.onprogress = function(e) {
             if(e.lengthComputable && progress_cb) {
@@ -200,7 +200,7 @@ var S = {};
         delete this._attachments[name];
     };
     $.Document.prototype.get_attachment_url = function(name) {
-        return this.__ego.db + this._id + "/" + name;
+        return this.__db.db + this._id + "/" + name;
     }
     $.Document.prototype._make_id = function() {
         this._id = "id_" + ("" + Math.random()).slice(2);
@@ -492,7 +492,7 @@ var S = {};
         }
     };
     $.Database.prototype.oncreate = function(doc) {
-        // side-effect of creation is SUPER_EGO.register
+        // side-effect of creation is DB.register
         var foo = new $.Document(this, doc);
         this.register(foo);
 
