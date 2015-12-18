@@ -244,6 +244,8 @@ var S = {};
         this._worldstate = {};      // id -> doc
         this._undodoc = null;
 
+        this._savewaiting = {}; // id -> cb
+
         // "private" variable with a key-value map of all objects
         this._obj = {};
     };
@@ -263,12 +265,10 @@ var S = {};
         var that = this;
 
         if(this.socket) {
+            this._savewaiting[doc._id] = function() {
+                success(doc); // XXX: handle errors?
+            }
             this.socket.send(JSON.stringify(doc));
-            // Fire success when we get the new doc back
-            // XXX: We have no idea if this is a success or not.
-            this.get(doc._id).once("_rev-change", function() {
-                success({ok: true, rev: this.get(doc._id)._rev}); // XXX: better emulate couch success call?
-            }.bind(this));
         }
         else {
             var xhr = new XMLHttpRequest();
@@ -433,10 +433,19 @@ var S = {};
     $.Database.prototype._handle_ws_change = function(e) {
         if(typeof e.data == "string") {
             var res = JSON.parse(e.data);
-            // Hmmm... maybe I should just make my own protocol.
-            var doc = res.results[0].doc;
 
-            this._ondocchange(doc);
+            if(res.ok) {
+                if(res.id in this._savewaiting) {
+                    this._savewaiting[res.id]();
+                    delete this._savewaiting[res.id];
+                }
+            }
+            else {
+                // Hmmm... maybe I should just make my own protocol.
+                var doc = res.results[0].doc;
+
+                this._ondocchange(doc);
+            }
         }
     }
     $.Database.prototype.connect = function() {

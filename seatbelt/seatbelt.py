@@ -120,6 +120,17 @@ class PartsBin:
 
 PARTS_BIN = PartsBin()
 
+class SynchronousFileSink():
+    def __init__(self, filepath):
+        self.filepath = filepath
+
+    def put(self, msg):
+        with opena(self.filepath) as fh:
+            fh.write("%s\n" % (msg))
+
+    def stop(self):
+        pass
+
 class AsynchronousFileSink(Thread):
     """The AsynchronousFileSink is a thread that dumps lines of text to a
     file, while allowing synchronous reads of that file
@@ -262,8 +273,13 @@ class DbChangesWsFactory(WebSocketServerFactory):
 
     def stop(self):
         # Disconnect all clients
-        for client in self.clients.values():
-            self.unregister(client)
+        peerids = self.clients.keys()
+        self.clients = {}       # no more updates...
+        
+        for peer in peerids:
+            if peer in self.db.docs:
+                # Delete client doc
+                self.db.delete_doc(peer)
 
     def _send(self, msg, initiator=None):
         for c in self.clients.values():
@@ -287,9 +303,14 @@ class DbChangesWsProtocol(WebSocketServerProtocol):
             else:
                 # Interpret incoming comands as database updates
                 if doc.get("_deleted", False):
-                    self.factory.db.delete_doc(doc["_id"], initiator=self)
+                    did_delete = self.factory.db.delete_doc(doc["_id"], initiator=self)
+                    upd = {"ok": did_delete, "_id": doc["_id"]}
                 else:
-                    self.factory.db._try_update(doc, initiator=self)
+                    upd = self.factory.db._try_update(doc, initiator=self)
+
+                # Indicate success
+                # TODO: indicate failure
+                self.sendMessage(json.dumps(upd))
         else:
             metadoc = self.factory.clients[self.peer]
             del self.factory.clients[self.peer]
@@ -414,7 +435,7 @@ class StreamFactory(WebSocketServerFactory):
         WebSocketServerFactory.__init__(self, None)
 
         self.clients = {}       # peerstr -> client
-        self.sink = AsynchronousFileSink(sinkpath)
+        # self.sink = AsynchronousFileSink(sinkpath)
 
     @property
     def do_record(self):
@@ -727,7 +748,8 @@ class Database(Resource):
 
         self.putChild("_all_docs", self.all_docs_resource)
 
-        self._changesink = AsynchronousFileSink(os.path.join(self.dbpath, "_changes"))
+        #self._changesink = AsynchronousFileSink(os.path.join(self.dbpath, "_changes"))
+        self._changesink = SynchronousFileSink(os.path.join(self.dbpath, "_changes"))        
 
         self._change_waiters = {} # request -> timeout_callback
 
@@ -836,6 +858,7 @@ class Database(Resource):
             del self.docs[docid]
             #self.db._save_to_disk()
             self._save_db_info()
+            
             self._change({"_id": docid, "_deleted": True}, initiator=initiator)
 
             self.all_docs_resource.wipe_cache()
