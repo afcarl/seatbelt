@@ -420,9 +420,14 @@ var S = {};
         for(var key in all_docs) {
             this.oncreate(all_docs[key]);
         }
-        this.onload();
-        this.onconnect();       // compatibility...
 
+        this.socket.onmessage = this._handle_ws_whoami.bind(this);
+    }
+    $.Database.prototype._handle_ws_whoami = function(e) {
+        this.whoami = JSON.parse(e.data);
+
+        this.onload();
+        this.onconnect();       // ???
         this.socket.onmessage = this._handle_ws_change.bind(this);
     }
     $.Database.prototype._handle_ws_change = function(e) {

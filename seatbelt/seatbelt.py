@@ -237,15 +237,33 @@ class DbChangesWsFactory(WebSocketServerFactory):
 
     def register(self, client):
         self.clients[client.peer] = client
+
+        # Add client document to database
+        self.db._try_update({"_id": client.peer,
+                             "type": "peer",
+                             "name": client.peer}, initiator=client)
+        
         # Send _all_docs to client
         client.sendMessage(json.dumps(self.db._all_docs))
+        
+        # Send a special `whoami' document
+        client.sendMessage(json.dumps({"type": "whoami", "name": client.peer}))
 
     def unregister(self, client):
-        if client.peer in self.clients:
+        if client.peer in self.clients and client.peer in self.db.docs:
             #print "unregistered client", client.peer
             del self.clients[client.peer]
+
+            # Delete client doc
+            self.db.delete_doc(client.peer)
+            
         else:
             print "??? unregistering an unregistered client", client.peer
+
+    def stop(self):
+        # Disconnect all clients
+        for client in self.clients.values():
+            self.unregister(client)
 
     def _send(self, msg, initiator=None):
         for c in self.clients.values():
@@ -298,6 +316,9 @@ class DbChanges(Resource):
         self._change_sockets.protocol = PARTS_BIN["DbChangesWsProtocol"]
         self._change_sockets_resource = CorsWebSocketResource(self._change_sockets)
         self.putChild("_ws", self._change_sockets_resource)
+
+    def stop(self):
+        self._change_sockets.stop()
 
     def render_GET(self, request):
         _cors(request)
@@ -711,7 +732,10 @@ class Database(Resource):
         self._change_waiters = {} # request -> timeout_callback
 
     def stop(self):
+        self.change_resource.stop()
+        
         self._changesink.stop()
+        
         for doc in self.docs.values():
             doc.stop()
 
