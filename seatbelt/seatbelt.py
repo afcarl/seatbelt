@@ -123,6 +123,8 @@ PARTS_BIN = PartsBin()
 class SynchronousFileSink():
     def __init__(self, filepath):
         self.filepath = filepath
+        if not os.path.exists(self.filepath):
+            open(self.filepath, 'w').write('')
 
     def put(self, msg):
         with opena(self.filepath) as fh:
@@ -299,7 +301,7 @@ class DbChangesWsProtocol(WebSocketServerProtocol):
             doc = json.loads(payload)
             # If type is "_attach", treat as attachment metadata
             if doc.get("type") == "_attach":
-                self.factory.clients[self.peer] = doc
+                self.factory.binmeta[self.peer] = doc
             else:
                 # Interpret incoming comands as database updates
                 if doc.get("_deleted", False):
@@ -312,8 +314,8 @@ class DbChangesWsProtocol(WebSocketServerProtocol):
                 # TODO: indicate failure
                 self.sendMessage(json.dumps(upd))
         else:
-            metadoc = self.factory.clients[self.peer]
-            del self.factory.clients[self.peer]
+            metadoc = self.factory.binmeta[self.peer]
+            del self.factory.binmeta[self.peer]
             docid = metadoc["id"]
             attachname = metadoc["name"]
             dbdoc = self.factory.db.docs.get(docid)
@@ -435,6 +437,7 @@ class StreamFactory(WebSocketServerFactory):
         WebSocketServerFactory.__init__(self, None)
 
         self.clients = {}       # peerstr -> client
+        self.sink = SynchronousFileSink(sinkpath)
         # self.sink = AsynchronousFileSink(sinkpath)
 
     @property
