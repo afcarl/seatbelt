@@ -450,9 +450,16 @@ var S = {};
     }
     $.Database.prototype.connect = function() {
         // Establish a websocket connection
-        var url = "ws://" + window.location.host;
+
+        var proto = window.location.protocol;
+        var wsproto = 'ws://';
+        if(proto[proto.length-2] == 's') {
+            wsproto = 'wss://';
+        }
+        
+        var url = wsproto + window.location.host;
         if(this.db.slice(0,7) == "http://") {
-            url = "ws://" + this.db.split("http://")[1];
+            url = wsproto + this.db.split("http://")[1];
         }
         // XXX: What are these cases?
         else if(this.db[0] == "/") {
