@@ -525,7 +525,10 @@ class Document(Resource):
         else:
             # XXX: Should be more consistent about "security"
             filename = os.path.basename(filename)
+
         a_dest = os.path.join(self.docpath, filename)
+        if os.path.exists(a_dest):
+            os.unlink(a_dest)
         os.symlink(os.path.abspath(path), a_dest)
         self._create_attachment(filename)
 
@@ -688,8 +691,10 @@ class DesignDoc(Document):
         self.rewrite_resource.putChild("root", self.db.seatbelt) # insecure!
 
         # Include seatbelt.js
-        self.rewrite_resource.putChild("seatbelt.js", File(os.path.join(
-            os.path.dirname(__file__), 'static', 'seatbelt.js')))
+        seatbelt_path = os.path.join(
+            os.path.dirname(__file__), 'static', 'seatbelt.js')
+        if os.path.exists(seatbelt_path):
+            self.rewrite_resource.putChild("seatbelt.js", File(seatbelt_path))
 
         self.putChild("_rewrite", self.rewrite_resource)
 
@@ -890,6 +895,10 @@ class Database(Resource):
         # don't increment `rev' on `_volatile' updates
         if not doc.get("_volatile"):
             doc["_rev"] = make_rev(doc)
+
+        # save `peer' id
+        if initiator:
+            doc["_peer"] = initiator.peer
 
         self._all_docs[docid] = doc
         self.all_docs_resource.wipe_cache()
