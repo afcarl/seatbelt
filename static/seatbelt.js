@@ -293,7 +293,8 @@ var S = {};
         // XXX: Implement over web sockets--set __deleted=True or smth
 
         var that = this;
-        this.trigger("delete", this.get(id));
+	// This will be triggered on return. (!)
+        //this.trigger("delete", this.get(id));
 
         var doc = this.get(id);
         if(doc) {
