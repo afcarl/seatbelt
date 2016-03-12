@@ -1,14 +1,14 @@
 Seatbelt is a http/websocket database/server
 
-= Installation
+## Installation
 
 pip install -r requirements.txt
 
-= Server-side Usage
+## Server-side Usage
 
 seatbelt.serve()
 
-= Client-side Usage
+## Client-side Usage
 
 S.Database
 S.Document
