@@ -258,7 +258,7 @@ class DbChangesWsFactory(WebSocketServerFactory):
         
         # Send _all_docs to client
         client.sendMessage(json.dumps(self.db._all_docs))
-        
+ 
         # Send a special `whoami' document
         client.sendMessage(json.dumps({"type": "whoami", "name": client.peer}))
 
@@ -415,7 +415,6 @@ class Stream(Resource):
     def getChild(self, name, req):
         if name == '':
             return self
-            #return File(self.filepath)
         return Resource.getChild(self, name, req)
 
     def stop(self):
@@ -437,33 +436,25 @@ class StreamFactory(WebSocketServerFactory):
         WebSocketServerFactory.__init__(self, None)
 
         self.clients = {}       # peerstr -> client
-        self.sink = SynchronousFileSink(sinkpath)
-        # self.sink = AsynchronousFileSink(sinkpath)
+        self.sink = SynchronousFileSink(sinkpath) # XXX: NOT USED
 
-    @property
-    def do_record(self):
-        return self._stream_res.do_record
+    def onpeerchange(self):
+        # HACK: override for notification when self.clients changes
+        pass
 
 class StreamProtocol(WebSocketServerProtocol):
     def onOpen(self):
-        print 'connected stream client', self.peer, self.factory.clients.keys()
         self.factory.clients[self.peer] = self
+        self.factory.onpeerchange()
     def connectionLost(self, reason):
         if self.peer in self.factory.clients:
-            print 'disconnected stream client', self.peer
             del self.factory.clients[self.peer]
+        self.factory.onpeerchange()
     def onMessage(self, payload, isBinary):
-        # print 'sending payload to %d connected clients' % (len(self.factory.clients)-1)
         for client in self.factory.clients.values():
-            # Send to all clients excepting self
             if client.peer != self.peer:
-                # print 'sending message from', self.peer, 'to', client.peer, '; len: ', len(payload)
                 client.sendMessage(payload, isBinary=isBinary)
 
-        # print 'got message!'
-        if self.factory.do_record:
-            #print 'saving message!', payload
-            self.factory.sink.put(payload, isBinary)
 
 class Document(Resource):
     def __init__(self, db, docpath):
@@ -500,7 +491,7 @@ class Document(Resource):
             self.streams[streamname] = Stream(os.path.join(self.docpath, streamname))
             self.putChild(streamname, self.streams[streamname])
         # Set recording flag
-        self.streams[streamname].do_record = self.doc["_streams"][streamname].get("recording", False)
+        # self.streams[streamname].do_record = self.doc["_streams"][streamname].get("recording", False)
 
     def _serve_attachment(self, filename, mimetype="text/html"):
         self.attachments[filename] = PARTS_BIN["Attachment"](self, os.path.join(self.docpath, filename),
